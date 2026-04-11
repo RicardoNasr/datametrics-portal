@@ -317,86 +317,55 @@
   </div>
 
   <script>
-    // ─── CONFIG ───────────────────────────────────────────────────────────────
-    const SUPABASE_URL = 'https://qeoffriootmnzhdefdzz.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlb2Zmcmlvb3RtbnpoZGVmZHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYyMjYxMzgsImV4cCI6MjA4MTgwMjEzOH0.HNbA62UHdLQNhQxCFbM9h7gSIzswXokBrg6qgP2T0dc'; // replace with your anon key
-    // ──────────────────────────────────────────────────────────────────────────
+  const SUPABASE_URL = 'https://qeoffriootmnzhdefdzz.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlb2Zmcmlvb3RtbnpoZGVmZHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYyMjYxMzgsImV4cCI6MjA4MTgwMjEzOH0.HNbA62UHdLQNhQxCFbM9h7gSIzswXokBrg6qgP2T0dc';
 
-    const form = document.getElementById('loginForm');
-    const btn = document.getElementById('submitBtn');
-    const errorMsg = document.getElementById('errorMsg');
-    const errorText = document.getElementById('errorText');
+  const form = document.getElementById('loginForm');
+  const btn = document.getElementById('submitBtn');
+  const errorMsg = document.getElementById('errorMsg');
+  const errorText = document.getElementById('errorText');
 
-    function showError(msg) {
-      errorText.textContent = msg;
-      errorMsg.classList.add('visible');
-    }
+  function showError(msg) { errorText.textContent = msg; errorMsg.classList.add('visible'); }
+  function hideError() { errorMsg.classList.remove('visible'); }
+  function setLoading(loading) { btn.disabled = loading; btn.classList.toggle('loading', loading); }
 
-    function hideError() {
-      errorMsg.classList.remove('visible');
-    }
+  async function hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
 
-    function setLoading(loading) {
-      btn.disabled = loading;
-      btn.classList.toggle('loading', loading);
-    }
-
-    async function hashPassword(password) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(password);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      hideError();
-
-      const slug = document.getElementById('slug').value.trim().toLowerCase();
-      const password = document.getElementById('password').value;
-
-      if (!slug || !password) return;
-
-      setLoading(true);
-
-      try {
-        const hash = await hashPassword(password);
-
-        const res = await fetch(
-          `${SUPABASE_URL}/rest/v1/clients?select=dashboard_url&slug=eq.${encodeURIComponent(slug)}&password_hash=eq.${hash}&is_active=eq.true`,
-          {
-            headers: {
-              'apikey': SUPABASE_ANON_KEY,
-              'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            }
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideError();
+    const slug = document.getElementById('slug').value.trim().toLowerCase();
+    const password = document.getElementById('password').value;
+    if (!slug || !password) return;
+    setLoading(true);
+    try {
+      const hash = await hashPassword(password);
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/clients?select=dashboard_url&slug=eq.${encodeURIComponent(slug)}&password_hash=eq.${hash}&is_active=eq.true`,
+        {
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Accept-Profile': 'myapp'
           }
-        );
-
-        const data = await res.json();
-
-        if (!data || data.length === 0) {
-          showError('Invalid account ID or password.');
-          setLoading(false);
-          return;
         }
-
-        const { dashboard_url } = data[0];
-
-        if (!dashboard_url) {
-          showError('Dashboard not configured. Contact support.');
-          setLoading(false);
-          return;
-        }
-
-        // Redirect to locked dashboard
-        window.location.href = dashboard_url;
-
-      } catch (err) {
-        showError('Connection error. Please try again.');
-        setLoading(false);
-      }
-    });
+      );
+      const data = await res.json();
+      if (!data || data.length === 0) { showError('Invalid account ID or password.'); setLoading(false); return; }
+      const { dashboard_url } = data[0];
+      if (!dashboard_url) { showError('Dashboard not configured. Contact support.'); setLoading(false); return; }
+      window.location.href = dashboard_url;
+    } catch (err) {
+      showError('Connection error. Please try again.');
+      setLoading(false);
+    }
+  });
   </script>
 </body>
 </html>
