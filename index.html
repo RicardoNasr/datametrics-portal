@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Metrics — Client Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #111118;
+      --border: #1e1e2e;
+      --border-light: #2a2a3e;
+      --text: #e8e8f0;
+      --text-muted: #6b6b8a;
+      --accent: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.15);
+      --accent-dim: rgba(99, 102, 241, 0.6);
+      --error: #f87171;
+      --success: #34d399;
+      --mono: 'DM Mono', monospace;
+      --sans: 'DM Sans', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      overflow: hidden;
+    }
+
+    /* Background grid */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Radial glow top */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 600px;
+      background: radial-gradient(ellipse at center, rgba(99,102,241,0.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 400px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px;
+      position: relative;
+      animation: fadeUp 0.5s ease both;
+    }
+
+    /* Top accent line */
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 24px;
+      right: 24px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 32px;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--accent-glow);
+      border: 1px solid var(--accent-dim);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .brand-icon svg {
+      width: 16px;
+      height: 16px;
+      stroke: var(--accent);
+    }
+
+    .brand-name {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: 0.05em;
+    }
+
+    .brand-name span {
+      color: var(--text-muted);
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+      font-family: var(--mono);
+    }
+
+    input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border-light);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-family: var(--sans);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    input::placeholder { color: var(--text-muted); }
+
+    input:focus {
+      border-color: var(--accent-dim);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 13px;
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: var(--sans);
+      cursor: pointer;
+      margin-top: 8px;
+      transition: opacity 0.2s, transform 0.1s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn:hover { opacity: 0.9; }
+    .btn:active { transform: scale(0.99); }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-text { transition: opacity 0.2s; }
+    .btn.loading .btn-text { opacity: 0; }
+
+    .spinner {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .btn.loading .spinner { opacity: 1; }
+
+    .spinner::after {
+      content: '';
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-msg {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: rgba(248,113,113,0.08);
+      border: 1px solid rgba(248,113,113,0.2);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--error);
+      margin-top: 12px;
+    }
+
+    .error-msg.visible { display: flex; }
+
+    .footer {
+      margin-top: 40px;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      text-align: center;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="card">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 3v18h18"/>
+            <path d="m7 16 4-4 4 4 4-4"/>
+          </svg>
+        </div>
+        <div class="brand-name">data<span>metrics</span></div>
+      </div>
+
+      <h1>Welcome back</h1>
+      <p class="subtitle">Enter your credentials to access your analytics dashboard.</p>
+
+      <form id="loginForm">
+        <div class="field">
+          <label for="slug">Account ID</label>
+          <input
+            type="text"
+            id="slug"
+            placeholder="e.g. lune"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <button type="submit" class="btn" id="submitBtn">
+          <span class="btn-text">Access Dashboard</span>
+          <span class="spinner"></span>
+        </button>
+        <div class="error-msg" id="errorMsg">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span id="errorText">Invalid account ID or password.</span>
+        </div>
+      </form>
+    </div>
+
+    <div class="footer">secured client portal &mdash; v1.0</div>
+  </div>
+
+  <script>
+    // ─── CONFIG ───────────────────────────────────────────────────────────────
+    const SUPABASE_URL = 'https://qeoffriootmnzhdefdzz.supabase.co';
+    const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // replace with your anon key
+    // ──────────────────────────────────────────────────────────────────────────
+
+    const form = document.getElementById('loginForm');
+    const btn = document.getElementById('submitBtn');
+    const errorMsg = document.getElementById('errorMsg');
+    const errorText = document.getElementById('errorText');
+
+    function showError(msg) {
+      errorText.textContent = msg;
+      errorMsg.classList.add('visible');
+    }
+
+    function hideError() {
+      errorMsg.classList.remove('visible');
+    }
+
+    function setLoading(loading) {
+      btn.disabled = loading;
+      btn.classList.toggle('loading', loading);
+    }
+
+    async function hashPassword(password) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError();
+
+      const slug = document.getElementById('slug').value.trim().toLowerCase();
+      const password = document.getElementById('password').value;
+
+      if (!slug || !password) return;
+
+      setLoading(true);
+
+      try {
+        const hash = await hashPassword(password);
+
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/clients?select=dashboard_url&slug=eq.${encodeURIComponent(slug)}&password_hash=eq.${hash}&is_active=eq.true`,
+          {
+            headers: {
+              'apikey': SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            }
+          }
+        );
+
+        const data = await res.json();
+
+        if (!data || data.length === 0) {
+          showError('Invalid account ID or password.');
+          setLoading(false);
+          return;
+        }
+
+        const { dashboard_url } = data[0];
+
+        if (!dashboard_url) {
+          showError('Dashboard not configured. Contact support.');
+          setLoading(false);
+          return;
+        }
+
+        // Redirect to locked dashboard
+        window.location.href = dashboard_url;
+
+      } catch (err) {
+        showError('Connection error. Please try again.');
+        setLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>
