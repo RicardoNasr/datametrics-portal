@@ -48,7 +48,7 @@ export default async function handler(req, res) {
     const payload = {
       resource: { dashboard: dashboardId },
       params: {
-        client_id: client.client_id
+        "client": client.client_id
       },
       exp: Math.round(Date.now() / 1000) + (60 * 60) // 1 hour expiry
     };
