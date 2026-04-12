@@ -50,7 +50,7 @@ export default async function handler(req, res) {
       params: {
         "client": client.client_id
       },
-      exp: Math.round(Date.now() / 1000) + (60 * 60) // 1 hour expiry
+      exp: Math.round(Date.now() / 1000) + (60 * 60 * 24) // 1 hour expiry
     };
 
     const token = jwt.sign(payload, process.env.METABASE_SECRET_KEY);
