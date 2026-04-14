@@ -23,10 +23,15 @@ export default async function handler(req, res) {
     );
 
     const data = await supabaseRes.json();
-    if (!data || data.length === 0) {
+
+    // Debug: log what Supabase returned
+    console.log('Supabase response status:', supabaseRes.status);
+    console.log('Supabase response data:', JSON.stringify(data));
+    
+    if (!data || !Array.isArray(data) || data.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
+    
     const client = data[0];
 
     if (client.subscription_end_date) {
