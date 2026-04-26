@@ -79,22 +79,40 @@ export default async function handler(req, res) {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Missing Supabase env vars:', { 
+        hasUrl: !!supabaseUrl, 
+        hasKey: !!supabaseKey 
+      });
+      return res.status(500).json({ error: 'Server misconfiguration — missing Supabase credentials' });
+    }
+
     // Check if this shop already exists in the clients table
-    const findResponse = await fetch(
-      `${supabaseUrl}/rest/v1/clients?shopify_domain=eq.${encodeURIComponent(shop)}&select=client_id`,
-      {
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-        },
-      }
-    );
+    const findUrl = `${supabaseUrl}/rest/v1/clients?shopify_domain=eq.${encodeURIComponent(shop)}&select=client_id`;
+    console.log('Looking up client:', findUrl);
 
-    const existingClients = await findResponse.json();
+    const findResponse = await fetch(findUrl, {
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+      },
+    });
 
-    if (existingClients.length > 0) {
+    const findBody = await findResponse.text();
+    console.log('Find response:', findResponse.status, findBody);
+
+    if (!findResponse.ok) {
+      console.error('Supabase lookup failed:', findResponse.status, findBody);
+      return res.status(500).json({ error: 'Failed to look up client in database' });
+    }
+
+    const existingClients = JSON.parse(findBody);
+
+    if (Array.isArray(existingClients) && existingClients.length > 0) {
       // Update existing client with the new token
       const clientId = existingClients[0].client_id;
+      console.log(`Updating existing client ${clientId}`);
+
       const patchResponse = await fetch(
         `${supabaseUrl}/rest/v1/clients?client_id=eq.${clientId}`,
         {
@@ -114,11 +132,12 @@ export default async function handler(req, res) {
       );
 
       if (!patchResponse.ok) {
-        console.error('Supabase update failed:', await patchResponse.text());
-        return res.status(500).json({ error: 'Failed to save token' });
+        const patchError = await patchResponse.text();
+        console.error('Supabase update failed:', patchResponse.status, patchError);
+        return res.status(500).json({ error: 'Failed to save token', detail: patchError });
       }
 
-      console.log(`Updated token for existing client ${clientId} (${shop})`);
+      console.log(`Successfully updated token for client ${clientId} (${shop})`);
     } else {
       // New client — insert a placeholder row
       // Generate a sequential client_id (you'll finalize during onboarding)
