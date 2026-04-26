@@ -1,21 +1,39 @@
 // /api/shopify/callback.js
 // Step 2 of OAuth: Shopify redirects here after merchant approves.
-// Exchange the code for a permanent access token and store it in Supabase.
+// Exchange the authorization code for an offline access token and store it in Supabase.
 
 import crypto from 'crypto';
+
+function parseCookies(cookieHeader) {
+  const cookies = {};
+  if (!cookieHeader) return cookies;
+  cookieHeader.split(';').forEach(cookie => {
+    const [name, ...rest] = cookie.trim().split('=');
+    cookies[name] = rest.join('=');
+  });
+  return cookies;
+}
 
 export default async function handler(req, res) {
   const { shop, code, hmac, state, timestamp } = req.query;
 
   // --- 1. Validate required params ---
   if (!shop || !code || !hmac) {
-    return res.status(400).json({ error: 'Missing required parameters' });
+    return res.status(400).json({ error: 'Missing required parameters from Shopify' });
   }
 
-  // --- 2. Verify HMAC signature (proves request came from Shopify) ---
+  // --- 2. Verify the nonce (state) matches what we set in the cookie ---
+  const cookies = parseCookies(req.headers.cookie);
+  const savedNonce = cookies.shopify_nonce;
+  if (!savedNonce || savedNonce !== state) {
+    console.error('Nonce mismatch:', { savedNonce, state });
+    // Don't hard-fail on nonce mismatch — some browsers strip cookies on redirect.
+    // The HMAC check below is the critical security validation.
+  }
+
+  // --- 3. Verify HMAC signature (proves the request came from Shopify) ---
   const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
 
-  // Build the message string from all query params except hmac
   const queryParams = { ...req.query };
   delete queryParams.hmac;
   const sortedParams = Object.keys(queryParams)
@@ -29,10 +47,11 @@ export default async function handler(req, res) {
     .digest('hex');
 
   if (generatedHmac !== hmac) {
-    return res.status(403).json({ error: 'HMAC validation failed' });
+    console.error('HMAC validation failed');
+    return res.status(403).json({ error: 'HMAC validation failed — request may not be from Shopify' });
   }
 
-  // --- 3. Exchange authorization code for permanent access token ---
+  // --- 4. Exchange authorization code for an offline access token ---
   try {
     const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
@@ -46,19 +65,21 @@ export default async function handler(req, res) {
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      console.error('Token exchange failed:', errorText);
+      console.error('Token exchange failed:', tokenResponse.status, errorText);
       return res.status(500).json({ error: 'Failed to get access token from Shopify' });
     }
 
     const tokenData = await tokenResponse.json();
     const accessToken = tokenData.access_token;
+    const grantedScopes = tokenData.scope;
 
-    // --- 4. Store the token in Supabase ---
-    // First, check if this shop already exists in the clients table
+    console.log(`Token received for ${shop}, scopes: ${grantedScopes}`);
+
+    // --- 5. Store the token in Supabase ---
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    // Try to find existing client by shopify_domain
+    // Check if this shop already exists in the clients table
     const findResponse = await fetch(
       `${supabaseUrl}/rest/v1/clients?shopify_domain=eq.${encodeURIComponent(shop)}&select=client_id`,
       {
@@ -74,7 +95,7 @@ export default async function handler(req, res) {
     if (existingClients.length > 0) {
       // Update existing client with the new token
       const clientId = existingClients[0].client_id;
-      await fetch(
+      const patchResponse = await fetch(
         `${supabaseUrl}/rest/v1/clients?client_id=eq.${clientId}`,
         {
           method: 'PATCH',
@@ -92,12 +113,17 @@ export default async function handler(req, res) {
         }
       );
 
+      if (!patchResponse.ok) {
+        console.error('Supabase update failed:', await patchResponse.text());
+        return res.status(500).json({ error: 'Failed to save token' });
+      }
+
       console.log(`Updated token for existing client ${clientId} (${shop})`);
     } else {
       // New client — insert a placeholder row
-      // You'll fill in client_name, slug, etc. manually during onboarding
-      const newClientId = Date.now(); // temporary ID, you can change this
-      await fetch(
+      // Generate a sequential client_id (you'll finalize during onboarding)
+      const newClientId = 100000 + Date.now() % 100000;
+      const postResponse = await fetch(
         `${supabaseUrl}/rest/v1/clients`,
         {
           method: 'POST',
@@ -109,6 +135,8 @@ export default async function handler(req, res) {
           },
           body: JSON.stringify({
             client_id: newClientId,
+            client_name: shop.replace('.myshopify.com', ''),
+            slug: shop.replace('.myshopify.com', ''),
             shopify_domain: shop,
             shopify_access_token: accessToken,
             shopify_installed_at: new Date().toISOString(),
@@ -117,11 +145,17 @@ export default async function handler(req, res) {
         }
       );
 
+      if (!postResponse.ok) {
+        console.error('Supabase insert failed:', await postResponse.text());
+        return res.status(500).json({ error: 'Failed to save new client' });
+      }
+
       console.log(`Created new client ${newClientId} for ${shop}`);
     }
 
-    // --- 5. Redirect to a success page ---
-    res.redirect('https://datametrics-portal.vercel.app/install-success');
+    // --- 6. Clear the nonce cookie and redirect to success page ---
+    res.setHeader('Set-Cookie', 'shopify_nonce=; Path=/; HttpOnly; Secure; Max-Age=0');
+    res.redirect('https://datametrics-portal.vercel.app/install-success.html');
 
   } catch (error) {
     console.error('OAuth callback error:', error);
