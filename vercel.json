@@ -8,7 +8,10 @@
   ],
   "routes": [
     { "src": "/api/login", "dest": "/api/login.js" },
-    { "src": "/api/shopify/(.*)", "dest": "/api/shopify/$1" },
+    { "src": "/api/shopify/install", "dest": "/api/shopify/install.js" },
+    { "src": "/api/shopify/callback", "dest": "/api/shopify/callback.js" },
+    { "src": "/api/shopify/gdpr", "dest": "/api/shopify/gdpr.js" },
+    { "src": "/api/shopify/refresh-token", "dest": "/api/shopify/refresh-token.js" },
     { "src": "/app", "dest": "/app.html" },
     { "src": "/privacy", "dest": "/public/privacy.html" },
     { "src": "/install-success", "dest": "/public/install-success.html" },
