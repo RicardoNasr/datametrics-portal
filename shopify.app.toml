@@ -1,0 +1,26 @@
+# Learn more about configuring your app: https://shopify.dev/docs/apps/tools/cli/configuration
+
+name = "DataMetrics Connector"
+client_id = "REPLACE_WITH_YOUR_SHOPIFY_CLIENT_ID"
+
+[access_scopes]
+scopes = "read_orders,read_all_orders,read_products,read_inventory,read_customers,read_reports,read_analytics"
+
+[auth]
+redirect_urls = [ "https://datametrics-portal.vercel.app/api/shopify/callback" ]
+
+[webhooks]
+api_version = "2026-04"
+
+[[webhooks.subscriptions]]
+compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+uri = "https://datametrics-portal.vercel.app/api/shopify/gdpr"
+
+[app_proxy]
+enabled = false
+
+[pos]
+embedded = false
+
+[build]
+automatically_update_urls_on_dev = false
