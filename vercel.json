@@ -1,21 +1,21 @@
 {
   "version": 2,
-  "functions": {
-    "api/login.js": {
-      "memory": 128,
-      "maxDuration": 10
-    }
-  },
+  "builds": [
+    { "src": "api/**/*.js", "use": "@vercel/node" },
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "app.html", "use": "@vercel/static" },
+    { "src": "public/**", "use": "@vercel/static" }
+  ],
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/$1" },
     { "src": "/app", "dest": "/app.html" },
-    { "src": "/privacy", "dest": "/privacy.html" },
-    { "src": "/install-success", "dest": "/install-success.html" },
+    { "src": "/privacy", "dest": "/public/privacy.html" },
+    { "src": "/install-success", "dest": "/public/install-success.html" },
     { "src": "/(.*)", "dest": "/index.html" }
   ],
   "headers": [
     {
-      "source": "/(index\\.html)?",
+      "source": "/",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
       ]
