@@ -1,6 +1,7 @@
 // /api/shopify/callback.js
 // Step 2 of OAuth: Shopify redirects here after merchant approves.
-// Exchange the authorization code for an offline access token and store it in Supabase.
+// Exchange the authorization code for an EXPIRING offline access token and store it in Supabase.
+// New public apps (April 2026+) MUST use expiring tokens.
 
 import crypto from 'crypto';
 
@@ -27,8 +28,8 @@ export default async function handler(req, res) {
   const savedNonce = cookies.shopify_nonce;
   if (!savedNonce || savedNonce !== state) {
     console.error('Nonce mismatch:', { savedNonce, state });
-    // Don't hard-fail on nonce mismatch — some browsers strip cookies on redirect.
-    // The HMAC check below is the critical security validation.
+    // Don't hard-fail — some browsers strip cookies on redirect.
+    // HMAC check below is the critical security validation.
   }
 
   // --- 3. Verify HMAC signature (proves the request came from Shopify) ---
@@ -51,7 +52,7 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'HMAC validation failed — request may not be from Shopify' });
   }
 
-  // --- 4. Exchange authorization code for an offline access token ---
+  // --- 4. Exchange authorization code for an EXPIRING offline access token ---
   try {
     const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
@@ -73,18 +74,46 @@ export default async function handler(req, res) {
     const accessToken = tokenData.access_token;
     const grantedScopes = tokenData.scope;
 
-    console.log(`Token received for ${shop}, scopes: ${grantedScopes}`);
+    // Expiring token fields (present for new public apps created after April 1, 2026)
+    const expiresIn = tokenData.expires_in || null;           // seconds until access token expires (3600 = 1 hour)
+    const refreshToken = tokenData.refresh_token || null;     // used to get a new access token
+    const refreshTokenExpiresIn = tokenData.refresh_token_expires_in || null; // seconds until refresh token expires (~90 days)
+
+    // Calculate absolute expiry timestamps
+    const now = new Date();
+    const tokenExpiresAt = expiresIn
+      ? new Date(now.getTime() + expiresIn * 1000).toISOString()
+      : null;
+    const refreshTokenExpiresAt = refreshTokenExpiresIn
+      ? new Date(now.getTime() + refreshTokenExpiresIn * 1000).toISOString()
+      : null;
+
+    console.log(`Token received for ${shop}, scopes: ${grantedScopes}, expires_in: ${expiresIn}, has_refresh: ${!!refreshToken}`);
 
     // --- 5. Store the token in Supabase ---
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing Supabase env vars:', { 
-        hasUrl: !!supabaseUrl, 
-        hasKey: !!supabaseKey 
+      console.error('Missing Supabase env vars:', {
+        hasUrl: !!supabaseUrl,
+        hasKey: !!supabaseKey,
       });
       return res.status(500).json({ error: 'Server misconfiguration — missing Supabase credentials' });
+    }
+
+    // Build the token data payload
+    const tokenPayload = {
+      shopify_access_token: accessToken,
+      shopify_installed_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    };
+
+    // Only include expiring token fields if they exist
+    if (refreshToken) {
+      tokenPayload.shopify_refresh_token = refreshToken;
+      tokenPayload.shopify_token_expires_at = tokenExpiresAt;
+      tokenPayload.shopify_refresh_token_expires_at = refreshTokenExpiresAt;
     }
 
     // Check if this shop already exists in the clients table
@@ -123,11 +152,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
             'Prefer': 'return=minimal',
           },
-          body: JSON.stringify({
-            shopify_access_token: accessToken,
-            shopify_installed_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }),
+          body: JSON.stringify(tokenPayload),
         }
       );
 
@@ -140,8 +165,16 @@ export default async function handler(req, res) {
       console.log(`Successfully updated token for client ${clientId} (${shop})`);
     } else {
       // New client — insert a placeholder row
-      // Generate a sequential client_id (you'll finalize during onboarding)
       const newClientId = 100000 + Date.now() % 100000;
+      const insertPayload = {
+        client_id: newClientId,
+        client_name: shop.replace('.myshopify.com', ''),
+        slug: shop.replace('.myshopify.com', ''),
+        shopify_domain: shop,
+        status: 'pending_onboarding',
+        ...tokenPayload,
+      };
+
       const postResponse = await fetch(
         `${supabaseUrl}/rest/v1/clients`,
         {
@@ -152,15 +185,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
             'Prefer': 'return=minimal',
           },
-          body: JSON.stringify({
-            client_id: newClientId,
-            client_name: shop.replace('.myshopify.com', ''),
-            slug: shop.replace('.myshopify.com', ''),
-            shopify_domain: shop,
-            shopify_access_token: accessToken,
-            shopify_installed_at: new Date().toISOString(),
-            status: 'pending_onboarding',
-          }),
+          body: JSON.stringify(insertPayload),
         }
       );
 
@@ -172,9 +197,12 @@ export default async function handler(req, res) {
       console.log(`Created new client ${newClientId} for ${shop}`);
     }
 
-    // --- 6. Clear the nonce cookie and redirect to success page ---
+    // --- 6. Clear the nonce cookie and redirect to the embedded app page ---
     res.setHeader('Set-Cookie', 'shopify_nonce=; Path=/; HttpOnly; Secure; Max-Age=0');
-    res.redirect('https://datametrics-portal.vercel.app/install-success.html');
+
+    // Redirect back into the Shopify admin embedded app
+    const host = req.query.host || Buffer.from(`${shop}/admin`).toString('base64url');
+    res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_CLIENT_ID}`);
 
   } catch (error) {
     console.error('OAuth callback error:', error);

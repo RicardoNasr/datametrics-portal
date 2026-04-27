@@ -5,8 +5,6 @@
 import crypto from 'crypto';
 
 export default function handler(req, res) {
-  // Shopify sends shop, timestamp, hmac when loading the app URL after install
-  // A direct visit with ?shop= also works for manual installs
   const shop = req.query.shop;
 
   if (!shop) {
@@ -21,7 +19,9 @@ export default function handler(req, res) {
 
   const clientId = process.env.SHOPIFY_CLIENT_ID;
   const redirectUri = 'https://datametrics-portal.vercel.app/api/shopify/callback';
-  const scopes = 'read_orders,read_products,read_inventory,read_customers,read_reports,read_analytics';
+
+  // UPDATED: Added read_all_orders for historical order access (backfill)
+  const scopes = 'read_orders,read_all_orders,read_products,read_inventory,read_customers,read_reports,read_analytics';
 
   // Generate a nonce for CSRF protection and store it in a cookie
   const nonce = crypto.randomBytes(16).toString('hex');
@@ -34,7 +34,8 @@ export default function handler(req, res) {
     `client_id=${clientId}` +
     `&scope=${scopes}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&state=${nonce}`;
+    `&state=${nonce}` +
+    `&grant_options[]=per-user`;  // Required for embedded app session tokens
 
   // Redirect merchant to Shopify's authorization screen
   res.redirect(authUrl);
