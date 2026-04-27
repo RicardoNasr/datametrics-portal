@@ -253,5 +253,14 @@
       document.getElementById('help-section').style.display = 'block';
     }, 1200);
   </script>
+  <script>
+  if (window.shopify) {
+    shopify.idToken().then(function(token) {
+      console.log('Session token retrieved');
+    }).catch(function(err) {
+      console.log('Session token not available:', err);
+    });
+  }
+  </script>
 </body>
 </html>
