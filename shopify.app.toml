@@ -1,7 +1,7 @@
 # Learn more about configuring your app: https://shopify.dev/docs/apps/tools/cli/configuration
 
 name = "DataMetrics Connector"
-client_id = "REPLACE_WITH_YOUR_SHOPIFY_CLIENT_ID"
+client_id = 55d1d3052ec34ce0f115f6cf2610628a
 
 [access_scopes]
 scopes = "read_orders,read_all_orders,read_products,read_inventory,read_customers,read_reports,read_analytics"
