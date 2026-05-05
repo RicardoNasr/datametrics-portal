@@ -1,8 +1,28 @@
 import jwt from 'jsonwebtoken';
 
+// Validate required env vars at module load — fail loud if anything is missing
+const REQUIRED_ENV = [
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'METABASE_SECRET_KEY',
+  'METABASE_SITE_URL',
+];
+
+const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k]);
+if (missingEnv.length > 0) {
+  // This will surface in Vercel build/runtime logs immediately
+  console.error(`FATAL: Missing required env vars: ${missingEnv.join(', ')}`);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Hard fail if config is incomplete — never silently fall back
+  if (missingEnv.length > 0) {
+    console.error(`Login attempt blocked: missing env vars: ${missingEnv.join(', ')}`);
+    return res.status(500).json({ error: 'Server misconfigured' });
   }
 
   const { slug, passwordHash } = req.body;
@@ -36,17 +56,20 @@ export default async function handler(req, res) {
       }
     }
 
-    const METABASE_SITE_URL = process.env.METABASE_SITE_URL || 'https://metabase-9tn9.onrender.com';
-    const dashboardId = client.dashboard_id || 2;
+    // No fallback — dashboard_id must be set explicitly per client
+    if (!client.dashboard_id) {
+      console.error(`Login error: client ${client.client_id} has no dashboard_id`);
+      return res.status(500).json({ error: 'Dashboard not configured' });
+    }
 
     const payload = {
-      resource: { dashboard: dashboardId },
+      resource: { dashboard: client.dashboard_id },
       params: { "client": client.client_id },
       exp: Math.round(Date.now() / 1000) + (60 * 60 * 24)
     };
 
     const token = jwt.sign(payload, process.env.METABASE_SECRET_KEY);
-    const embedUrl = `${METABASE_SITE_URL}/embed/dashboard/${token}#bordered=false&titled=false`;
+    const embedUrl = `${process.env.METABASE_SITE_URL}/embed/dashboard/${token}#bordered=false&titled=false`;
 
     return res.status(200).json({ url: embedUrl });
 
