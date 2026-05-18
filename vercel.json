@@ -12,6 +12,8 @@
     { "src": "/api/shopify/callback", "dest": "/api/shopify/callback.js" },
     { "src": "/api/shopify/gdpr", "dest": "/api/shopify/gdpr.js" },
     { "src": "/api/shopify/refresh-token", "dest": "/api/shopify/refresh-token.js" },
+    { "src": "/api/shopify/stats", "dest": "/api/shopify/stats.js" },
+    { "src": "/api/shopify/dashboard-link", "dest": "/api/shopify/dashboard-link.js" },
     { "src": "/app", "dest": "/app.html" },
     { "src": "/privacy", "dest": "/public/privacy.html" },
     { "src": "/install-success", "dest": "/public/install-success.html" },
@@ -32,10 +34,25 @@
       ]
     },
     {
+      "source": "/api/shopify/stats",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
+    },
+    {
+      "source": "/api/shopify/dashboard-link",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
+    },
+    {
       "source": "/api/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "no-store" },
-        { "key": "X-Frame-Options", "value": "DENY" },
         { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     }
