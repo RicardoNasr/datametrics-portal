@@ -1,80 +1,178 @@
-import jwt from 'jsonwebtoken';
+// /api/login.js
+// Portal authentication endpoint. Supports two flows:
+//   A) slug + passwordHash (existing flow for normal client logins)
+//   B) magic-token (new flow for auto-login from the Shopify embedded app)
+//
+// Returns a signed Metabase embed URL with client_id locked inside the JWT.
+//
+// Required env vars:
+//   SUPABASE_URL
+//   SUPABASE_SERVICE_ROLE_KEY
+//   METABASE_SECRET_KEY
+//   METABASE_SITE_URL          e.g. https://metabase-v0-50-19-hjp5.onrender.com
+//   MAGIC_LINK_SECRET          (for verifying magic tokens issued by dashboard-link.js)
 
-// Validate required env vars at module load — fail loud if anything is missing
-const REQUIRED_ENV = [
-  'SUPABASE_URL',
-  'SUPABASE_SERVICE_ROLE_KEY',
-  'METABASE_SECRET_KEY',
-  'METABASE_SITE_URL',
-];
+import crypto from 'crypto';
 
-const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k]);
-if (missingEnv.length > 0) {
-  // This will surface in Vercel build/runtime logs immediately
-  console.error(`FATAL: Missing required env vars: ${missingEnv.join(', ')}`);
+// ---------- helpers ----------
+
+function base64UrlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return Buffer.from(str, 'base64');
 }
+
+function base64UrlEncode(buf) {
+  return Buffer.from(buf)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+// Sign a Metabase embedding JWT
+function signMetabaseJwt(payload, secret) {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const headerB64 = base64UrlEncode(JSON.stringify(header));
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const sig = crypto
+    .createHmac('sha256', secret)
+    .update(`${headerB64}.${payloadB64}`)
+    .digest();
+  return `${headerB64}.${payloadB64}.${base64UrlEncode(sig)}`;
+}
+
+// Verify a magic-link token issued by /api/shopify/dashboard-link.js
+function verifyMagicToken(token, secret) {
+  const parts = token.split('.');
+  if (parts.length !== 2) throw new Error('Invalid magic token format');
+  const [payloadB64, sigB64] = parts;
+
+  const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest();
+  const actualSig = base64UrlDecode(sigB64);
+
+  if (
+    expectedSig.length !== actualSig.length ||
+    !crypto.timingSafeEqual(expectedSig, actualSig)
+  ) {
+    throw new Error('Magic token signature invalid');
+  }
+
+  const payload = JSON.parse(base64UrlDecode(payloadB64).toString('utf8'));
+  const now = Math.floor(Date.now() / 1000);
+  if (!payload.exp || now >= payload.exp) throw new Error('Magic token expired');
+  if (!payload.client_id) throw new Error('Magic token missing client_id');
+
+  return payload;
+}
+
+// Build the signed Metabase embed URL for a given client row
+function buildMetabaseUrl(clientRow) {
+  const dashboardId = clientRow.dashboard_id || 2;
+  const payload = {
+    resource: { dashboard: dashboardId },
+    params: { client: clientRow.client_id },
+    exp: Math.floor(Date.now() / 1000) + 60 * 60, // 1 hour
+  };
+
+  const token = signMetabaseJwt(payload, process.env.METABASE_SECRET_KEY);
+  const siteUrl = process.env.METABASE_SITE_URL;
+  if (!siteUrl) throw new Error('METABASE_SITE_URL env var not set');
+  // Trim trailing slash if present
+  const base = siteUrl.replace(/\/+$/, '');
+  return `${base}/embed/dashboard/${token}#bordered=false&titled=false`;
+}
+
+// Look up a client by either client_id or slug+passwordHash
+async function lookupClient(filterParams) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const url =
+    `${supabaseUrl}/rest/v1/clients` +
+    `?${filterParams}` +
+    `&select=client_id,slug,dashboard_id,status,subscription_end_date,is_active`;
+
+  const res = await fetch(url, {
+    headers: {
+      'apikey': supabaseKey,
+      'Authorization': `Bearer ${supabaseKey}`,
+    },
+  });
+
+  if (!res.ok) {
+    console.error('Supabase lookup failed:', res.status, await res.text());
+    return null;
+  }
+  const rows = await res.json();
+  return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+}
+
+// ---------- handler ----------
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Hard fail if config is incomplete — never silently fall back
-  if (missingEnv.length > 0) {
-    console.error(`Login attempt blocked: missing env vars: ${missingEnv.join(', ')}`);
-    return res.status(500).json({ error: 'Server misconfigured' });
-  }
+  const { slug, passwordHash, magicToken } = req.body || {};
 
-  const { slug, passwordHash } = req.body;
-  if (!slug || !passwordHash) {
-    return res.status(400).json({ error: 'Missing credentials' });
-  }
-
-  try {
-    const supabaseRes = await fetch(
-      `${process.env.SUPABASE_URL}/rest/v1/clients?select=client_id,dashboard_id,subscription_end_date&slug=eq.${encodeURIComponent(slug)}&password_hash=eq.${passwordHash}&is_active=eq.true`,
-      {
-        headers: {
-          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
-          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
-        }
-      }
-    );
-
-    const data = await supabaseRes.json();
-
-    if (!Array.isArray(data) || data.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+  // ===== Flow B: magic-token (Shopify embedded app auto-login) =====
+  if (magicToken) {
+    let claims;
+    try {
+      claims = verifyMagicToken(magicToken, process.env.MAGIC_LINK_SECRET);
+    } catch (err) {
+      console.warn('Magic token rejected:', err.message);
+      return res.status(401).json({ error: 'Invalid or expired link' });
     }
 
-    const client = data[0];
+    const client = await lookupClient(`client_id=eq.${claims.client_id}`);
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
 
+    // Subscription check
     if (client.subscription_end_date) {
-      const expiry = new Date(client.subscription_end_date);
-      if (expiry < new Date()) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (client.subscription_end_date < today) {
         return res.status(403).json({ error: 'subscription_expired' });
       }
     }
 
-    // No fallback — dashboard_id must be set explicitly per client
-    if (!client.dashboard_id) {
-      console.error(`Login error: client ${client.client_id} has no dashboard_id`);
-      return res.status(500).json({ error: 'Dashboard not configured' });
+    try {
+      return res.status(200).json({ url: buildMetabaseUrl(client) });
+    } catch (err) {
+      console.error('Failed to build Metabase URL:', err.message);
+      return res.status(500).json({ error: 'Server misconfiguration' });
     }
+  }
 
-    const payload = {
-      resource: { dashboard: client.dashboard_id },
-      params: { "client": client.client_id },
-      exp: Math.round(Date.now() / 1000) + (60 * 60 * 24)
-    };
+  // ===== Flow A: slug + passwordHash (existing) =====
+  if (!slug || !passwordHash) {
+    return res.status(400).json({ error: 'Missing credentials' });
+  }
 
-    const token = jwt.sign(payload, process.env.METABASE_SECRET_KEY);
-    const embedUrl = `${process.env.METABASE_SITE_URL}/embed/dashboard/${token}#bordered=false&titled=false`;
+  const client = await lookupClient(
+    `slug=eq.${encodeURIComponent(slug)}&password_hash=eq.${encodeURIComponent(passwordHash)}`
+  );
 
-    return res.status(200).json({ url: embedUrl });
+  if (!client) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
 
+  // Subscription check
+  if (client.subscription_end_date) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (client.subscription_end_date < today) {
+      return res.status(403).json({ error: 'subscription_expired' });
+    }
+  }
+
+  try {
+    return res.status(200).json({ url: buildMetabaseUrl(client) });
   } catch (err) {
-    console.error('Login error:', err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('Failed to build Metabase URL:', err.message);
+    return res.status(500).json({ error: 'Server misconfiguration' });
   }
 }
