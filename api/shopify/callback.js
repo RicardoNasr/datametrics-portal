@@ -1,7 +1,16 @@
 // /api/shopify/callback.js
-// Step 2 of OAuth: Shopify redirects here after merchant approves.
-// Exchange the authorization code for an EXPIRING offline access token and store it in Supabase.
-// New public apps (April 2026+) MUST use expiring tokens.
+// Step 2 of Shopify OAuth: Shopify redirects here after the merchant approves
+// the install. We:
+//   1. Verify the request actually came from Shopify (HMAC check)
+//   2. Exchange the authorization code for an access token
+//   3. Store the token in public.clients (upsert by shopify_domain)
+//   4. Redirect back into the Shopify Admin embedded app
+//
+// Required env vars on Vercel:
+//   SHOPIFY_CLIENT_ID
+//   SHOPIFY_CLIENT_SECRET
+//   SUPABASE_URL
+//   SUPABASE_SERVICE_ROLE_KEY
 
 import crypto from 'crypto';
 
@@ -16,27 +25,33 @@ function parseCookies(cookieHeader) {
 }
 
 export default async function handler(req, res) {
-  const { shop, code, hmac, state, timestamp } = req.query;
+  const { shop, code, hmac, state } = req.query;
 
   // --- 1. Validate required params ---
   if (!shop || !code || !hmac) {
-    return res.status(400).json({ error: 'Missing required parameters from Shopify' });
+    return res.status(400).send('Missing required parameters from Shopify');
   }
 
-  // --- 2. Verify the nonce (state) matches what we set in the cookie ---
+  // Validate shop format (prevents open redirect / SSRF)
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)) {
+    return res.status(400).send('Invalid shop parameter');
+  }
+
+  // --- 2. Verify the nonce (state) ---
+  // Soft check: some browsers strip the cookie on the round-trip. HMAC is the
+  // hard security check below.
   const cookies = parseCookies(req.headers.cookie);
   const savedNonce = cookies.shopify_nonce;
-  if (!savedNonce || savedNonce !== state) {
-    console.error('Nonce mismatch:', { savedNonce, state });
-    // Don't hard-fail — some browsers strip cookies on redirect.
-    // HMAC check below is the critical security validation.
+  if (savedNonce && savedNonce !== state) {
+    console.warn('Nonce mismatch (soft warning):', { savedNonce, state });
   }
 
-  // --- 3. Verify HMAC signature (proves the request came from Shopify) ---
+  // --- 3. Verify HMAC signature ---
   const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
 
   const queryParams = { ...req.query };
   delete queryParams.hmac;
+  delete queryParams.signature;
   const sortedParams = Object.keys(queryParams)
     .sort()
     .map(key => `${key}=${queryParams[key]}`)
@@ -47,12 +62,16 @@ export default async function handler(req, res) {
     .update(sortedParams)
     .digest('hex');
 
-  if (generatedHmac !== hmac) {
-    console.error('HMAC validation failed');
-    return res.status(403).json({ error: 'HMAC validation failed — request may not be from Shopify' });
+  // Constant-time compare
+  const a = Buffer.from(generatedHmac, 'utf8');
+  const b = Buffer.from(hmac, 'utf8');
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    console.error('HMAC validation failed for shop:', shop);
+    return res.status(403).send('HMAC validation failed');
   }
 
-  // --- 4. Exchange authorization code for an EXPIRING offline access token ---
+  // --- 4. Exchange authorization code for access token ---
+  let tokenData;
   try {
     const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
@@ -67,58 +86,66 @@ export default async function handler(req, res) {
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
       console.error('Token exchange failed:', tokenResponse.status, errorText);
-      return res.status(500).json({ error: 'Failed to get access token from Shopify' });
+      return res.status(500).send('Failed to exchange code for access token');
     }
 
-    const tokenData = await tokenResponse.json();
-    const accessToken = tokenData.access_token;
-    const grantedScopes = tokenData.scope;
+    tokenData = await tokenResponse.json();
+  } catch (err) {
+    console.error('Token exchange error:', err);
+    return res.status(500).send('Token exchange error');
+  }
 
-    // Expiring token fields (present for new public apps created after April 1, 2026)
-    const expiresIn = tokenData.expires_in || null;           // seconds until access token expires (3600 = 1 hour)
-    const refreshToken = tokenData.refresh_token || null;     // used to get a new access token
-    const refreshTokenExpiresIn = tokenData.refresh_token_expires_in || null; // seconds until refresh token expires (~90 days)
+  const accessToken = tokenData.access_token;
+  if (!accessToken) {
+    console.error('No access_token in Shopify response:', tokenData);
+    return res.status(500).send('No access token returned by Shopify');
+  }
 
-    // Calculate absolute expiry timestamps
-    const now = new Date();
-    const tokenExpiresAt = expiresIn
-      ? new Date(now.getTime() + expiresIn * 1000).toISOString()
-      : null;
-    const refreshTokenExpiresAt = refreshTokenExpiresIn
-      ? new Date(now.getTime() + refreshTokenExpiresIn * 1000).toISOString()
-      : null;
+  // --- 5. Build a tolerant token payload ---
+  // Only include columns that have a non-null value, so the same code works
+  // for both legacy permanent tokens (shpca_*) and new expiring tokens.
+  const now = new Date();
+  const tokenPayload = {
+    shopify_access_token: accessToken,
+    shopify_installed_at: now.toISOString(),
+    updated_at: now.toISOString(),
+  };
 
-    console.log(`Token received for ${shop}, scopes: ${grantedScopes}, expires_in: ${expiresIn}, has_refresh: ${!!refreshToken}`);
+  if (tokenData.refresh_token) {
+    tokenPayload.shopify_refresh_token = tokenData.refresh_token;
+  }
+  if (typeof tokenData.expires_in === 'number') {
+    tokenPayload.shopify_token_expires_at = new Date(
+      now.getTime() + tokenData.expires_in * 1000
+    ).toISOString();
+  }
+  if (typeof tokenData.refresh_token_expires_in === 'number') {
+    tokenPayload.shopify_refresh_token_expires_at = new Date(
+      now.getTime() + tokenData.refresh_token_expires_in * 1000
+    ).toISOString();
+  }
 
-    // --- 5. Store the token in Supabase ---
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  console.log(
+    `Token captured for ${shop} | scopes=${tokenData.scope} | ` +
+    `expires_in=${tokenData.expires_in || 'permanent'} | ` +
+    `has_refresh=${!!tokenData.refresh_token}`
+  );
 
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing Supabase env vars:', {
-        hasUrl: !!supabaseUrl,
-        hasKey: !!supabaseKey,
-      });
-      return res.status(500).json({ error: 'Server misconfiguration — missing Supabase credentials' });
-    }
+  // --- 6. Upsert into public.clients by shopify_domain ---
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    // Build the token data payload
-    const tokenPayload = {
-      shopify_access_token: accessToken,
-      shopify_installed_at: now.toISOString(),
-      updated_at: now.toISOString(),
-    };
+  if (!supabaseUrl || !supabaseKey) {
+    console.error('Missing Supabase env vars on Vercel');
+    return res.status(500).send('Server misconfiguration');
+  }
 
-    // Only include expiring token fields if they exist
-    if (refreshToken) {
-      tokenPayload.shopify_refresh_token = refreshToken;
-      tokenPayload.shopify_token_expires_at = tokenExpiresAt;
-      tokenPayload.shopify_refresh_token_expires_at = refreshTokenExpiresAt;
-    }
-
-    // Check if this shop already exists in the clients table
-    const findUrl = `${supabaseUrl}/rest/v1/clients?shopify_domain=eq.${encodeURIComponent(shop)}&select=client_id`;
-    console.log('Looking up client:', findUrl);
+  try {
+    // Lookup existing row by shopify_domain
+    const findUrl =
+      `${supabaseUrl}/rest/v1/clients` +
+      `?shopify_domain=eq.${encodeURIComponent(shop)}` +
+      `&select=client_id,status`;
 
     const findResponse = await fetch(findUrl, {
       headers: {
@@ -127,20 +154,17 @@ export default async function handler(req, res) {
       },
     });
 
-    const findBody = await findResponse.text();
-    console.log('Find response:', findResponse.status, findBody);
-
     if (!findResponse.ok) {
-      console.error('Supabase lookup failed:', findResponse.status, findBody);
-      return res.status(500).json({ error: 'Failed to look up client in database' });
+      const errorBody = await findResponse.text();
+      console.error('Supabase lookup failed:', findResponse.status, errorBody);
+      return res.status(500).send('Database lookup failed');
     }
 
-    const existingClients = JSON.parse(findBody);
+    const existing = await findResponse.json();
 
-    if (Array.isArray(existingClients) && existingClients.length > 0) {
-      // Update existing client with the new token
-      const clientId = existingClients[0].client_id;
-      console.log(`Updating existing client ${clientId}`);
+    if (Array.isArray(existing) && existing.length > 0) {
+      // --- UPDATE existing client ---
+      const clientId = existing[0].client_id;
 
       const patchResponse = await fetch(
         `${supabaseUrl}/rest/v1/clients?client_id=eq.${clientId}`,
@@ -157,55 +181,68 @@ export default async function handler(req, res) {
       );
 
       if (!patchResponse.ok) {
-        const patchError = await patchResponse.text();
-        console.error('Supabase update failed:', patchResponse.status, patchError);
-        return res.status(500).json({ error: 'Failed to save token', detail: patchError });
+        const errorBody = await patchResponse.text();
+        console.error('Supabase UPDATE failed:', patchResponse.status, errorBody);
+        return res.status(500).send('Failed to save token (update)');
       }
 
-      console.log(`Successfully updated token for client ${clientId} (${shop})`);
+      console.log(`✅ Token updated for existing client ${clientId} (${shop})`);
     } else {
-      // New client — insert a placeholder row
-      const newClientId = 100000 + Date.now() % 100000;
+      // --- INSERT new client (status='pending_onboarding') ---
+      // Generate a client_id between 100000–199999 to match Lune's range.
+      const newClientId = 100000 + (Date.now() % 100000);
       const insertPayload = {
         client_id: newClientId,
         client_name: shop.replace('.myshopify.com', ''),
         slug: shop.replace('.myshopify.com', ''),
         shopify_domain: shop,
         status: 'pending_onboarding',
+        is_active: false,
         ...tokenPayload,
       };
 
-      const postResponse = await fetch(
-        `${supabaseUrl}/rest/v1/clients`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal',
-          },
-          body: JSON.stringify(insertPayload),
-        }
-      );
+      const postResponse = await fetch(`${supabaseUrl}/rest/v1/clients`, {
+        method: 'POST',
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify(insertPayload),
+      });
 
       if (!postResponse.ok) {
-        console.error('Supabase insert failed:', await postResponse.text());
-        return res.status(500).json({ error: 'Failed to save new client' });
+        const errorBody = await postResponse.text();
+        console.error('Supabase INSERT failed:', postResponse.status, errorBody);
+        return res.status(500).send('Failed to save new client');
       }
 
-      console.log(`Created new client ${newClientId} for ${shop}`);
+      console.log(`✅ Created new client ${newClientId} for ${shop} (status=pending_onboarding)`);
     }
-
-    // --- 6. Clear the nonce cookie and redirect to the embedded app page ---
-    res.setHeader('Set-Cookie', 'shopify_nonce=; Path=/; HttpOnly; Secure; Max-Age=0');
-
-    // Redirect back into the Shopify admin embedded app
-    const host = req.query.host || Buffer.from(`${shop}/admin`).toString('base64url');
-    res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_CLIENT_ID}`);
-
-  } catch (error) {
-    console.error('OAuth callback error:', error);
-    return res.status(500).json({ error: 'Internal server error during OAuth' });
+  } catch (err) {
+    console.error('Supabase write error:', err);
+    return res.status(500).send('Database write error');
   }
+
+  // --- 7. Clear nonce cookie and redirect back into Shopify Admin ---
+  res.setHeader(
+    'Set-Cookie',
+    'shopify_nonce=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0'
+  );
+
+  // CRITICAL: include shop + host so App Bridge can initialize on the
+  // embedded page. The host param is base64url(shop/admin) — Shopify usually
+  // passes it through, but we fall back if it's missing.
+  const hostParam =
+    req.query.host ||
+    Buffer.from(`${shop}/admin`).toString('base64').replace(/=+$/, '');
+
+  const clientId = process.env.SHOPIFY_CLIENT_ID;
+  const redirectUrl =
+    `https://${shop}/admin/apps/${clientId}` +
+    `?shop=${encodeURIComponent(shop)}` +
+    `&host=${encodeURIComponent(hostParam)}`;
+
+  return res.redirect(302, redirectUrl);
 }
