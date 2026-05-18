@@ -6,19 +6,20 @@
   <meta name="shopify-api-key" content="55d1d3052ec34ce0f115f6cf2610628a">
   <title>DataMetrics Connector</title>
 
-  <!-- Shopify App Bridge — required for embedded apps -->
+  <!-- Shopify App Bridge — must load from CDN (required for embedded apps) -->
   <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                   'Helvetica Neue', sans-serif;
       background: #f6f6f7;
       color: #202223;
       line-height: 1.5;
       padding: 24px;
     }
-    .container { max-width: 720px; margin: 0 auto; }
+    .container { max-width: 880px; margin: 0 auto; }
 
     .hero {
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
@@ -29,7 +30,7 @@
     }
     .hero-badge {
       display: inline-block;
-      background: rgba(0, 200, 100, 0.15);
+      background: rgba(74, 222, 128, 0.18);
       color: #4ade80;
       font-size: 12px;
       font-weight: 600;
@@ -38,24 +39,14 @@
       margin-bottom: 12px;
       letter-spacing: 0.5px;
     }
-    .hero h1 {
-      font-size: 24px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-    .hero p {
-      font-size: 15px;
-      opacity: 0.85;
-    }
-    .hero .shop-name {
-      font-weight: 600;
-      color: #fbbf24;
-    }
+    .hero h1 { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
+    .hero p  { font-size: 15px; opacity: 0.85; }
+    .hero .shop-name { font-weight: 600; color: #fbbf24; }
 
     .card {
       background: white;
       border: 1px solid #e1e3e5;
-      border-radius: 8px;
+      border-radius: 12px;
       padding: 24px;
       margin-bottom: 16px;
     }
@@ -65,198 +56,285 @@
       margin-bottom: 16px;
       color: #202223;
     }
+    .card p { font-size: 14px; color: #6d7175; }
 
-    .timeline-item {
-      display: flex;
-      align-items: flex-start;
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
-      padding: 12px 0;
-      border-bottom: 1px solid #f1f1f2;
     }
-    .timeline-item:last-child { border-bottom: none; }
-    .timeline-num {
-      flex-shrink: 0;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: #1a1a2e;
-      color: white;
-      font-size: 13px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    @media (max-width: 720px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
     }
-    .timeline-num.done {
-      background: #00a96e;
-    }
-    .timeline-content { flex: 1; }
-    .timeline-content h3 {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 2px;
-    }
-    .timeline-content p {
-      font-size: 13px;
-      color: #6d7175;
-    }
-    .timeline-content .status {
-      display: inline-block;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 4px;
-      margin-top: 4px;
-    }
-    .status.in-progress { background: #fff4e5; color: #b45309; }
-    .status.scheduled { background: #e8eef9; color: #1e40af; }
-    .status.done { background: #e3f5ec; color: #00713a; }
-
-    .preview-card {
-      background: linear-gradient(135deg, #f9fafb 0%, #f1f5f9 100%);
+    .stat {
+      background: #fafbfb;
       border: 1px solid #e1e3e5;
       border-radius: 8px;
-      padding: 24px;
-      text-align: center;
-      margin-bottom: 16px;
+      padding: 16px;
     }
-    .preview-card h2 {
-      font-size: 16px;
-      font-weight: 600;
+    .stat .stat-label {
+      font-size: 12px;
+      color: #6d7175;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
       margin-bottom: 6px;
     }
-    .preview-card p {
-      font-size: 13px;
-      color: #6d7175;
-      margin-bottom: 16px;
+    .stat .stat-value {
+      font-size: 22px;
+      font-weight: 600;
+      color: #202223;
+      min-height: 28px;
     }
-    .btn-primary {
+    .stat .stat-value.loading {
+      color: #c9cccf;
+      font-weight: 400;
+      font-size: 14px;
+    }
+
+    .btn {
       display: inline-block;
-      background: #1a1a2e;
-      color: white;
+      padding: 12px 22px;
+      border-radius: 8px;
       text-decoration: none;
-      padding: 10px 20px;
-      border-radius: 6px;
       font-size: 14px;
       font-weight: 600;
+      border: none;
+      cursor: pointer;
       transition: background 0.15s;
     }
+    .btn-primary { background: #1a1a2e; color: white; }
     .btn-primary:hover { background: #16213e; }
-
-    .contact-card {
+    .btn-primary:disabled { background: #6d7175; cursor: wait; }
+    .btn-secondary {
       background: white;
-      border: 1px solid #e1e3e5;
-      border-radius: 8px;
-      padding: 20px 24px;
+      color: #202223;
+      border: 1px solid #c9cccf;
+    }
+    .btn-secondary:hover { background: #f6f6f7; }
+
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+
+    .info-row {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-    .contact-card .label {
-      font-size: 13px;
-      color: #6d7175;
-    }
-    .contact-card .value {
+      padding: 10px 0;
+      border-bottom: 1px solid #f1f1f2;
       font-size: 14px;
-      font-weight: 600;
     }
-    .contact-card a { color: #2c6ecb; text-decoration: none; }
-    .contact-card a:hover { text-decoration: underline; }
+    .info-row:last-child { border: none; }
+    .info-row .info-label { color: #6d7175; }
+    .info-row .info-value { color: #202223; font-weight: 500; }
   </style>
 </head>
 <body>
   <div class="container">
 
-    <!-- HERO -->
     <div class="hero">
-      <div class="hero-badge">✓ INSTALLED</div>
-      <h1>DataMetrics is now connected to your store</h1>
-      <p>Welcome, <span id="shop-name" class="shop-name">your store</span>. Here's what happens next.</p>
+      <div class="hero-badge">✓ CONNECTED</div>
+      <h1>DataMetrics is connected to your store</h1>
+      <p>Showing live data from <span id="shop-name" class="shop-name">your store</span>.</p>
     </div>
 
-    <!-- TIMELINE -->
     <div class="card">
-      <h2>Your onboarding journey</h2>
-
-      <div class="timeline-item">
-        <div class="timeline-num done">✓</div>
-        <div class="timeline-content">
-          <h3>App installed</h3>
-          <p>We've securely connected to your Shopify store.</p>
-          <span class="status done">Complete</span>
+      <h2>Your store at a glance</h2>
+      <div class="stats-grid">
+        <div class="stat">
+          <div class="stat-label">Orders</div>
+          <div class="stat-value loading" id="stat-orders">Loading…</div>
         </div>
-      </div>
-
-      <div class="timeline-item">
-        <div class="timeline-num">2</div>
-        <div class="timeline-content">
-          <h3>Initial data sync</h3>
-          <p>We're now collecting your orders, products, customers, and Shopify analytics. Historical backfill is in progress.</p>
-          <span class="status in-progress">In progress</span>
+        <div class="stat">
+          <div class="stat-label">Products</div>
+          <div class="stat-value loading" id="stat-products">Loading…</div>
         </div>
-      </div>
-
-      <div class="timeline-item">
-        <div class="timeline-num">3</div>
-        <div class="timeline-content">
-          <h3>Onboarding call (within 24–48h)</h3>
-          <p>Our team will reach out to connect your Meta Ads account and configure your dashboard to match your business.</p>
-          <span class="status scheduled">Scheduled</span>
+        <div class="stat">
+          <div class="stat-label">Customers</div>
+          <div class="stat-value loading" id="stat-customers">Loading…</div>
         </div>
-      </div>
-
-      <div class="timeline-item">
-        <div class="timeline-num">4</div>
-        <div class="timeline-content">
-          <h3>Your personalized dashboard goes live</h3>
-          <p>You'll receive login credentials by email. Your dashboard will show your store's data — revenue, profitability, ROAS, customer trends — all in one place.</p>
-          <span class="status scheduled">Scheduled</span>
+        <div class="stat">
+          <div class="stat-label">Currency</div>
+          <div class="stat-value loading" id="stat-currency">Loading…</div>
         </div>
       </div>
     </div>
 
-    <!-- PREVIEW -->
-    <div class="preview-card">
-      <h2>Want to see what your dashboard will look like?</h2>
-      <p>Preview the DataMetrics analytics portal with a demo merchant's data.</p>
-      <a href="https://datametrics-portal.vercel.app" target="_blank" class="btn-primary">
-        View Sample Dashboard →
-      </a>
+    <div class="card">
+      <h2>Your analytics dashboard</h2>
+      <p>The DataMetrics dashboard combines this store's data with your Meta Ads spend to show revenue, profit, ROAS, attribution, and customer cohorts — all in one view.</p>
+      <div class="btn-row">
+        <button id="open-dashboard-btn" class="btn btn-primary">Open Dashboard</button>
+        <a id="demo-link" href="#" class="btn btn-secondary">View Sample Dashboard</a>
+      </div>
+      <p id="dashboard-error" style="margin-top:10px; color:#bf2c2c; display:none;"></p>
     </div>
 
-    <!-- CONTACT -->
-    <div class="contact-card">
-      <div>
-        <div class="label">Questions about onboarding?</div>
-        <div class="value">Contact our team directly</div>
+    <div class="card">
+      <h2>What this app does</h2>
+      <div class="info-row">
+        <span class="info-label">Reads from your store</span>
+        <span class="info-value">Orders, products, customers, analytics</span>
       </div>
-      <div>
-        <a href="mailto:ricardo.nasr15@gmail.com">ricardo.nasr15@gmail.com</a>
+      <div class="info-row">
+        <span class="info-label">Writes to your store</span>
+        <span class="info-value">Nothing — read-only</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Sync frequency</span>
+        <span class="info-value">Hourly, automatic</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Support</span>
+        <span class="info-value"><a href="mailto:ricardo.nasr15@gmail.com" style="color:#2c6ecb;text-decoration:none;">ricardo.nasr15@gmail.com</a></span>
       </div>
     </div>
 
   </div>
 
   <script>
-    // Read shop name from URL
-    const params = new URLSearchParams(window.location.search);
-    const shop = params.get('shop') || '';
-    if (shop) {
-      document.getElementById('shop-name').textContent = shop.replace('.myshopify.com', '');
-    }
-  </script>
+    // ====================================================================
+    // CONFIG
+    // ====================================================================
+    // The portal origin where /api/shopify/stats, /api/shopify/dashboard-link,
+    // and /api/login live. CORS must be permitted from *.myshopify.com and
+    // admin.shopify.com — Vercel does this by default for serverless functions
+    // unless you've explicitly restricted it.
+    const PORTAL_ORIGIN = 'https://datametrics-portal.vercel.app';
 
-  <script>
-    // Session token authentication — required for Shopify embedded app checks
-    if (window.shopify) {
-      shopify.idToken().then(function(token) {
-        console.log('Session token retrieved');
-      }).catch(function(err) {
-        console.log('Session token not available:', err);
+    // Long-lived demo magic token (1 year). Embedded here so any visitor can
+    // see the demo dashboard without any backend roundtrip. This token is
+    // server-side validated against MAGIC_LINK_SECRET — clients can't forge it.
+    const DEMO_MAGIC_TOKEN =
+      'eyJjbGllbnRfaWQiOjEwMDAwMSwiZXhwIjoxODEwNjY5NDAxLCJkZW1vIjp0cnVlLCJub25jZSI6IjBjNzEwMDhhMjQwNjQ1OWQifQ.Xx0o5wEjj1OtPFgeF8yZR8RMf6IxD38u0kXOOrVs3xU';
+
+    // ====================================================================
+    // EMBEDDED APP LOGIC
+    // ====================================================================
+
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const shop = params.get('shop') || '';
+
+      // Populate store name in the hero
+      const shopEl = document.getElementById('shop-name');
+      if (shopEl) {
+        shopEl.textContent = shop ? shop.replace('.myshopify.com', '') : 'your store';
+      }
+
+      // Wire up demo link
+      document.getElementById('demo-link').href =
+        PORTAL_ORIGIN + '/?magic=' + encodeURIComponent(DEMO_MAGIC_TOKEN);
+      document.getElementById('demo-link').target = '_blank';
+      document.getElementById('demo-link').rel = 'noopener';
+
+      // ------------------------------------------------------------------
+      // Helpers
+      // ------------------------------------------------------------------
+      async function getSessionToken() {
+        if (typeof shopify === 'undefined' || !shopify.idToken) {
+          throw new Error('App Bridge not available');
+        }
+        return await shopify.idToken();
+      }
+
+      function renderStat(id, value, fallback) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('loading');
+        el.textContent = (value !== null && value !== undefined && value !== '')
+          ? value
+          : fallback;
+      }
+
+      function fmtNum(n) {
+        if (typeof n !== 'number') return null;
+        return n.toLocaleString('en-US');
+      }
+
+      function renderAllFallback(text) {
+        renderStat('stat-orders',    null, text);
+        renderStat('stat-products',  null, text);
+        renderStat('stat-customers', null, text);
+        renderStat('stat-currency',  null, text);
+      }
+
+      // ------------------------------------------------------------------
+      // Load live stats via backend proxy
+      // ------------------------------------------------------------------
+      async function loadStats(sessionToken) {
+        try {
+          const res = await fetch(PORTAL_ORIGIN + '/api/shopify/stats', {
+            method: 'GET',
+            headers: { 'Authorization': 'Bearer ' + sessionToken },
+          });
+
+          if (!res.ok) {
+            console.warn('Stats endpoint returned', res.status);
+            renderAllFallback('—');
+            return;
+          }
+
+          const data = await res.json();
+          renderStat('stat-orders',    fmtNum(data.orders),    '—');
+          renderStat('stat-products',  fmtNum(data.products),  '—');
+          renderStat('stat-customers', fmtNum(data.customers), '—');
+          renderStat('stat-currency',  data.currency || null,  '—');
+        } catch (err) {
+          console.warn('Stats load failed:', err.message);
+          renderAllFallback('—');
+        }
+      }
+
+      // ------------------------------------------------------------------
+      // "Open Dashboard" button
+      // ------------------------------------------------------------------
+      const dashBtn = document.getElementById('open-dashboard-btn');
+      const dashErr = document.getElementById('dashboard-error');
+
+      dashBtn.addEventListener('click', async function () {
+        dashErr.style.display = 'none';
+        dashBtn.disabled = true;
+        const originalText = dashBtn.textContent;
+        dashBtn.textContent = 'Opening…';
+
+        try {
+          const sessionToken = await getSessionToken();
+          const res = await fetch(PORTAL_ORIGIN + '/api/shopify/dashboard-link', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + sessionToken,
+            },
+          });
+          const data = await res.json().catch(() => ({}));
+
+          if (!res.ok || !data.url) {
+            throw new Error(data.message || data.error || 'Could not open dashboard');
+          }
+
+          window.open(data.url, '_blank', 'noopener');
+        } catch (err) {
+          console.error('Open dashboard error:', err);
+          dashErr.textContent = err.message || 'Could not open dashboard. Please try again.';
+          dashErr.style.display = 'block';
+        } finally {
+          dashBtn.disabled = false;
+          dashBtn.textContent = originalText;
+        }
       });
-    }
+
+      // ------------------------------------------------------------------
+      // Boot
+      // ------------------------------------------------------------------
+      (async function boot() {
+        try {
+          const sessionToken = await getSessionToken();
+          console.log('✅ App Bridge session token acquired');
+          await loadStats(sessionToken);
+        } catch (err) {
+          console.warn('App Bridge unavailable — showing fallback:', err.message);
+          renderAllFallback('—');
+        }
+      })();
+    })();
   </script>
 </body>
 </html>
