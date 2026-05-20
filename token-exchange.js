@@ -109,11 +109,7 @@ export default async function handler(req, res) {
         subject_token: sessionToken,
         subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
         requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
-        // REQUIRED for new public apps (Shopify rule, April 1 2026):
-        // non-expiring tokens are rejected by the Admin API with a 403.
-        // Shopify expects the value "1" (not "true"). Returns a short-lived
-        // access token + refresh token. This migration is one-time and
-        // irreversible per shop.
+        // "1" requests an expiring offline token (required for new public apps).
         expiring: '1',
       }).toString(),
     });
@@ -125,6 +121,49 @@ export default async function handler(req, res) {
     }
 
     tokenData = await exchangeRes.json();
+
+    // ---- MIGRATION FALLBACK ----
+    // If this shop already had a NON-expiring offline token from a previous
+    // install, Shopify returns that same non-expiring token here and ignores
+    // expiring=1 (offline tokens are sticky per shop/install). We detect that
+    // (no expires_in) and run the one-time migration request: exchange the
+    // non-expiring offline token FOR an expiring one. Shopify revokes the old
+    // non-expiring token on success.
+    if (!tokenData.expires_in && tokenData.access_token) {
+      console.log(`Got non-expiring token for ${shop} — running migration to expiring…`);
+      const migrateRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+        },
+        body: new URLSearchParams({
+          client_id: process.env.SHOPIFY_CLIENT_ID,
+          client_secret: process.env.SHOPIFY_CLIENT_SECRET,
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          // subject is the non-expiring offline token we just received
+          subject_token: tokenData.access_token,
+          subject_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
+          requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
+          expiring: '1',
+        }).toString(),
+      });
+
+      if (migrateRes.ok) {
+        const migrated = await migrateRes.json();
+        if (migrated.expires_in) {
+          console.log(`✅ Migrated ${shop} to expiring token (expires_in=${migrated.expires_in})`);
+          tokenData = migrated;
+        } else {
+          console.warn(`Migration returned no expires_in for ${shop}; using original token.`);
+        }
+      } else {
+        const mErr = await migrateRes.text();
+        console.error('Migration request failed:', migrateRes.status, mErr);
+        // Continue with the non-expiring token; the Admin API may still reject
+        // it, but we don't want to hard-fail the whole flow.
+      }
+    }
   } catch (err) {
     console.error('Token exchange error:', err);
     return res.status(502).json({ error: 'Token exchange error' });
@@ -137,7 +176,7 @@ export default async function handler(req, res) {
   }
 
   console.log(
-    `Token exchanged for ${shop} | scope=${tokenData.scope} | ` +
+    `Token ready for ${shop} | scope=${tokenData.scope} | ` +
     `expires_in=${tokenData.expires_in || 'permanent'}`
   );
 
