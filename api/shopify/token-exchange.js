@@ -109,6 +109,10 @@ export default async function handler(req, res) {
         subject_token: sessionToken,
         subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
         requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
+        // REQUIRED for new public apps (Shopify rule, April 1 2026):
+        // non-expiring tokens are rejected by the Admin API with a 403.
+        // expiring=true returns a short-lived access token + refresh token.
+        expiring: 'true',
       }).toString(),
     });
 
@@ -148,6 +152,11 @@ export default async function handler(req, res) {
   if (typeof tokenData.expires_in === 'number') {
     tokenPayload.shopify_token_expires_at = new Date(
       now.getTime() + tokenData.expires_in * 1000
+    ).toISOString();
+  }
+  if (typeof tokenData.refresh_token_expires_in === 'number') {
+    tokenPayload.shopify_refresh_token_expires_at = new Date(
+      now.getTime() + tokenData.refresh_token_expires_in * 1000
     ).toISOString();
   }
 
