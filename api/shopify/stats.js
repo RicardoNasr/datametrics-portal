@@ -1,19 +1,29 @@
 // /api/shopify/stats.js
-// Called from the embedded app.html to fetch live counts (orders / products
-// / customers / currency) for the current merchant's store.
+// Returns live counts (orders / products / customers / currency) for the
+// current merchant's store, for display in the embedded app.
 //
 // Flow:
-//   1. Verify the App Bridge session token from Authorization header
-//   2. Extract shop from the token's `dest` claim
-//   3. Look up the offline access token in public.clients
-//   4. Call Shopify GraphQL Admin API with that access token
-//   5. Return the counts to the frontend
-//
-// Session tokens themselves CANNOT call the Admin API — we use them only to
-// prove the request really came from the merchant's embedded session.
+//   1. Handle CORS preflight (OPTIONS) — required because the embedded app
+//      calls this cross-origin from admin.shopify.com with an Authorization header
+//   2. Verify the App Bridge session token
+//   3. Extract shop from the token's `dest` claim
+//   4. Look up the offline access token in public.clients
+//   5. Call Shopify GraphQL Admin API with that access token
+//   6. Return the counts
 
 import crypto from 'crypto';
 
+// ---------- CORS ----------
+// Set permissive CORS headers on EVERY response (including errors + preflight).
+// Shopify embeds the app under admin.shopify.com, so requests are cross-origin.
+function setCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
+
+// ---------- session token verification ----------
 function base64UrlDecode(str) {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4) str += '=';
@@ -47,7 +57,15 @@ function shopFromDest(dest) {
   return m[1];
 }
 
+// ---------- handler ----------
 export default async function handler(req, res) {
+  setCors(res);
+
+  // Preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
