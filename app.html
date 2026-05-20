@@ -257,6 +257,30 @@
       }
 
       // ------------------------------------------------------------------
+      // Exchange session token for an offline access token (managed install)
+      // This MUST run before loadStats — it's what saves the token to the DB
+      // so the stats endpoint has something to use. Self-heals on every open.
+      // ------------------------------------------------------------------
+      async function exchangeToken(sessionToken) {
+        try {
+          const res = await fetch(PORTAL_ORIGIN + '/api/shopify/token-exchange', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + sessionToken },
+          });
+          if (!res.ok) {
+            console.warn('Token exchange returned', res.status);
+            return false;
+          }
+          const data = await res.json();
+          console.log('✅ Token exchanged and saved for', data.shop, '(' + data.status + ')');
+          return true;
+        } catch (err) {
+          console.warn('Token exchange failed:', err.message);
+          return false;
+        }
+      }
+
+      // ------------------------------------------------------------------
       // Load live stats via backend proxy
       // ------------------------------------------------------------------
       async function loadStats(sessionToken) {
@@ -328,6 +352,8 @@
         try {
           const sessionToken = await getSessionToken();
           console.log('✅ App Bridge session token acquired');
+          // Exchange + save the token FIRST, then load stats (which needs it).
+          await exchangeToken(sessionToken);
           await loadStats(sessionToken);
         } catch (err) {
           console.warn('App Bridge unavailable — showing fallback:', err.message);
