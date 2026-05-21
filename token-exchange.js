@@ -122,6 +122,11 @@ export default async function handler(req, res) {
 
     tokenData = await exchangeRes.json();
 
+    // VERSION MARKER v4-migration — if you don't see this in logs, old code is cached
+    console.log('TOKEN-EXCHANGE v4-migration running for', shop,
+      '| initial expires_in =', tokenData.expires_in,
+      '| token prefix =', (tokenData.access_token || '').slice(0, 10));
+
     // ---- MIGRATION FALLBACK ----
     // If this shop already had a NON-expiring offline token from a previous
     // install, Shopify returns that same non-expiring token here and ignores
@@ -149,8 +154,12 @@ export default async function handler(req, res) {
         }).toString(),
       });
 
+      const migrateBody = await migrateRes.text();
+      console.log('MIGRATION raw response:', migrateRes.status, migrateBody);
+
       if (migrateRes.ok) {
-        const migrated = await migrateRes.json();
+        let migrated = {};
+        try { migrated = JSON.parse(migrateBody); } catch (e) {}
         if (migrated.expires_in) {
           console.log(`✅ Migrated ${shop} to expiring token (expires_in=${migrated.expires_in})`);
           tokenData = migrated;
@@ -158,10 +167,7 @@ export default async function handler(req, res) {
           console.warn(`Migration returned no expires_in for ${shop}; using original token.`);
         }
       } else {
-        const mErr = await migrateRes.text();
-        console.error('Migration request failed:', migrateRes.status, mErr);
-        // Continue with the non-expiring token; the Admin API may still reject
-        // it, but we don't want to hard-fail the whole flow.
+        console.error('Migration request failed:', migrateRes.status, migrateBody);
       }
     }
   } catch (err) {
