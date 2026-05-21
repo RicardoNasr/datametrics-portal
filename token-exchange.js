@@ -1,3 +1,4 @@
+// BUILD-MARKER: 2026-05-21-v5 — force fresh Vercel rebuild (do not remove)
 // /api/shopify/token-exchange.js
 // Modern token acquisition for embedded apps using Shopify managed installation.
 //
@@ -64,6 +65,7 @@ function shopFromDest(dest) {
 
 // ---------- handler ----------
 export default async function handler(req, res) {
+  console.log('>>> token-exchange BUILD v5 invoked, method=', req.method);
   setCors(res);
 
   if (req.method === 'OPTIONS') {
