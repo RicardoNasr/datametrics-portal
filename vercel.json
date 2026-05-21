@@ -14,6 +14,7 @@
     { "src": "/api/shopify/refresh-token", "dest": "/api/shopify/refresh-token.js" },
     { "src": "/api/shopify/stats", "dest": "/api/shopify/stats.js" },
     { "src": "/api/shopify/token-exchange", "dest": "/api/shopify/token-exchange.js" },
+    { "src": "/api/shopify/token-exchange-v2", "dest": "/api/shopify/token-exchange-v2.js" },
     { "src": "/api/shopify/dashboard-link", "dest": "/api/shopify/dashboard-link.js" },
     { "src": "/app", "dest": "/app.html" },
     { "src": "/privacy", "dest": "/public/privacy.html" },

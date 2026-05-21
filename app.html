@@ -263,7 +263,7 @@
       // ------------------------------------------------------------------
       async function exchangeToken(sessionToken) {
         try {
-          const res = await fetch(PORTAL_ORIGIN + '/api/shopify/token-exchange', {
+          const res = await fetch(PORTAL_ORIGIN + '/api/shopify/token-exchange-v2', {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + sessionToken },
           });
