@@ -219,10 +219,15 @@
         shopEl.textContent = shop ? shop.replace('.myshopify.com', '') : 'your store';
       }
 
-      // Wire up demo link
+      // Wire up demo link.
+      // IMPORTANT: this page runs inside Shopify Admin's iframe. We must NOT use
+      // target="_blank" / window.open — the admin iframe sandbox blocks popups,
+      // so nothing happens (the reviewer sees a "blank page"). Instead we navigate
+      // the TOP-LEVEL window (target="_top"), which breaks out of the iframe and
+      // loads the portal as a normal full-page tab.
       document.getElementById('demo-link').href =
         PORTAL_ORIGIN + '/?magic=' + encodeURIComponent(DEMO_MAGIC_TOKEN);
-      document.getElementById('demo-link').target = '_blank';
+      document.getElementById('demo-link').target = '_top';
       document.getElementById('demo-link').rel = 'noopener';
 
       // ------------------------------------------------------------------
@@ -254,6 +259,29 @@
         renderStat('stat-products',  null, text);
         renderStat('stat-customers', null, text);
         renderStat('stat-currency',  null, text);
+      }
+
+      // ------------------------------------------------------------------
+      // Top-level navigation OUT of the Shopify Admin iframe.
+      // Tries direct top.location first; falls back to a synthesized anchor
+      // click with target="_top". One of these always works; window.open with
+      // _blank does NOT (popup blocked by the admin iframe sandbox).
+      // ------------------------------------------------------------------
+      function topLevelNavigate(url) {
+        try {
+          // Works when the embed permits top navigation (it does for Shopify Admin).
+          window.top.location.href = url;
+          return;
+        } catch (e) {
+          // Cross-origin restriction — fall through to the anchor method.
+        }
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_top';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       }
 
       // ------------------------------------------------------------------
@@ -334,7 +362,13 @@
             throw new Error(data.message || data.error || 'Could not open dashboard');
           }
 
-          window.open(data.url, '_blank', 'noopener');
+          // Break out of the Shopify Admin iframe to the top-level window.
+          // window.open(_blank) is blocked inside the admin iframe sandbox, which
+          // is what caused the "blank page" the reviewer saw.
+          // The most reliable cross-browser way to break out is a real anchor
+          // click with target="_top" (programmatic window.open can be swallowed
+          // by the sandbox; an anchor _top navigation is honored consistently).
+          topLevelNavigate(data.url);
         } catch (err) {
           console.error('Open dashboard error:', err);
           dashErr.textContent = err.message || 'Could not open dashboard. Please try again.';
