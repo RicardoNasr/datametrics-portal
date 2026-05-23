@@ -150,7 +150,8 @@
         });
         const data = await res.json().catch(() => ({}));
 
-        if (!res.ok || !data.url) {
+        if (!res.ok) {
+          // Hard error (bad/expired link token, server error)
           document.getElementById('login-card').innerHTML =
             '<div style="text-align:center;padding:8px;">' +
               '<div style="font-size:18px;font-weight:600;color:#1a1a2e;margin-bottom:8px;">' +
@@ -164,7 +165,18 @@
           return;
         }
 
-        window.location.replace(data.url);
+        // Route every state through the /dashboard wrapper, which renders the
+        // right page (ready → embed, preparing → "being prepared", expired →
+        // "contact us"). The wrapper is always a controlled, non-blank page.
+        const qs = new URLSearchParams({ state: data.state || 'preparing' });
+        if (data.state === 'ready') {
+          qs.set('embed', data.url);
+          if (data.isDemo) qs.set('demo', '1');
+        }
+        if (data.state === 'expired') {
+          qs.set('kind', data.expiredKind || 'trial');
+        }
+        window.location.replace('/dashboard?' + qs.toString());
       } catch (err) {
         document.getElementById('login-card').innerHTML =
           '<div style="text-align:center;padding:8px;font-size:14px;color:#374151;">' +
@@ -225,18 +237,22 @@
           setLoading(false);
           return;
         }
-        if (res.status === 403 && data.error === 'subscription_expired') {
-          showError('Your subscription has expired. Please contact us to renew.');
-          setLoading(false);
-          return;
-        }
-        if (!res.ok || !data.url) {
+        if (!res.ok) {
           showError('Connection error. Please try again.');
           setLoading(false);
           return;
         }
 
-        window.location.href = data.url;
+        // Route through the /dashboard wrapper, same as the magic flow.
+        const qs = new URLSearchParams({ state: data.state || 'preparing' });
+        if (data.state === 'ready') {
+          qs.set('embed', data.url);
+          if (data.isDemo) qs.set('demo', '1');
+        }
+        if (data.state === 'expired') {
+          qs.set('kind', data.expiredKind || 'paid');
+        }
+        window.location.href = '/dashboard?' + qs.toString();
       } catch (err) {
         showError('Connection error. Please try again.');
         setLoading(false);
