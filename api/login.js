@@ -91,7 +91,7 @@ async function lookupClient(filterParams) {
   const url =
     `${supabaseUrl}/rest/v1/clients` +
     `?${filterParams}` +
-    `&select=client_id,slug,dashboard_id,status,subscription_end_date,is_active`;
+    `&select=client_id,slug,dashboard_id,status,subscription_end_date,is_active,trial_data_ready_at,trial_started_at`;
 
   const res = await fetch(url, {
     headers: {
@@ -106,6 +106,41 @@ async function lookupClient(filterParams) {
   }
   const rows = await res.json();
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+}
+
+// Decide what a client should see, based on status / expiry / data readiness.
+// Returns one of:
+//   { state: 'ready',     url, isDemo }
+//   { state: 'preparing' }
+//   { state: 'expired',   expiredKind: 'trial' | 'paid' }
+function resolveAccessState(client, isDemo) {
+  const today = new Date().toISOString().slice(0, 10);
+  const expired =
+    client.subscription_end_date && client.subscription_end_date < today;
+
+  // Expiry is checked first, for everyone (trial AND paid).
+  if (expired) {
+    return {
+      state: 'expired',
+      expiredKind: client.status === 'active' ? 'paid' : 'trial',
+    };
+  }
+
+  // Active paying client → full dashboard.
+  if (client.status === 'active') {
+    return { state: 'ready', url: buildMetabaseUrl(client), isDemo: false };
+  }
+
+  // Trial client → needs data to be ready first.
+  if (client.status === 'trial') {
+    if (!client.trial_data_ready_at) {
+      return { state: 'preparing' };
+    }
+    return { state: 'ready', url: buildMetabaseUrl(client), isDemo: !!isDemo };
+  }
+
+  // pending_onboarding / anything else → not ready yet.
+  return { state: 'preparing' };
 }
 
 // ---------- handler ----------
@@ -132,18 +167,11 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Client not found' });
     }
 
-    // Subscription check
-    if (client.subscription_end_date) {
-      const today = new Date().toISOString().slice(0, 10);
-      if (client.subscription_end_date < today) {
-        return res.status(403).json({ error: 'subscription_expired' });
-      }
-    }
-
     try {
-      return res.status(200).json({ url: buildMetabaseUrl(client) });
+      const access = resolveAccessState(client, claims.demo === true);
+      return res.status(200).json(access);
     } catch (err) {
-      console.error('Failed to build Metabase URL:', err.message);
+      console.error('Failed to resolve access state:', err.message);
       return res.status(500).json({ error: 'Server misconfiguration' });
     }
   }
@@ -161,18 +189,12 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  // Subscription check
-  if (client.subscription_end_date) {
-    const today = new Date().toISOString().slice(0, 10);
-    if (client.subscription_end_date < today) {
-      return res.status(403).json({ error: 'subscription_expired' });
-    }
-  }
-
   try {
-    return res.status(200).json({ url: buildMetabaseUrl(client) });
+    const access = resolveAccessState(client, false);
+    return res.status(200).json(access);
   } catch (err) {
-    console.error('Failed to build Metabase URL:', err.message);
+    console.error('Failed to resolve access state:', err.message);
     return res.status(500).json({ error: 'Server misconfiguration' });
   }
+}
 }
