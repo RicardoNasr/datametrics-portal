@@ -24,6 +24,59 @@ function parseCookies(cookieHeader) {
   return cookies;
 }
 
+// Trial configuration
+const TRIAL_DAYS = 10;
+const TRIAL_DASHBOARD_ID = 5; // one-page "KPI Dashboard — Trial Mode"
+
+// Fields written when a store STARTS its trial (first install only).
+function buildTrialStartFields(now) {
+  const end = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+  return {
+    status: 'trial',
+    is_active: true,
+    dashboard_id: TRIAL_DASHBOARD_ID,
+    trial_started_at: now.toISOString(),
+    subscription_end_date: end.toISOString().slice(0, 10), // DATE column (YYYY-MM-DD)
+    // trial_data_ready_at intentionally left NULL — n8n sets it when the
+    // 10-day backfill finishes. Portal shows "preparing" until then.
+  };
+}
+
+// Fire-and-forget trigger to the n8n trial backfill workflow.
+// Never blocks or fails the install — if n8n is down, the merchant still
+// installs successfully; the backfill can be re-run manually.
+async function fireTrialBackfill(clientId, shop, accessToken) {
+  const webhookUrl = process.env.N8N_INSTALL_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn('N8N_INSTALL_WEBHOOK_URL not set — skipping trial backfill trigger');
+    return;
+  }
+  try {
+    const resp = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Shared secret so the webhook can reject calls that aren't from us.
+        'x-datametrics-secret': process.env.N8N_INSTALL_WEBHOOK_SECRET || '',
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        shop_domain: shop,
+        access_token: accessToken,
+        trial_days: TRIAL_DAYS,
+      }),
+    });
+    if (!resp.ok) {
+      console.error('n8n trial backfill trigger returned', resp.status, await resp.text());
+    } else {
+      console.log(`✅ Trial backfill triggered for client ${clientId} (${shop})`);
+    }
+  } catch (err) {
+    // Swallow — install must succeed even if the trigger fails.
+    console.error('n8n trial backfill trigger error (non-fatal):', err.message);
+  }
+}
+
 export default async function handler(req, res) {
   const { shop, code, hmac, state } = req.query;
 
@@ -145,7 +198,7 @@ export default async function handler(req, res) {
     const findUrl =
       `${supabaseUrl}/rest/v1/clients` +
       `?shopify_domain=eq.${encodeURIComponent(shop)}` +
-      `&select=client_id,status`;
+      `&select=client_id,status,trial_started_at,subscription_end_date`;
 
     const findResponse = await fetch(findUrl, {
       headers: {
@@ -162,9 +215,31 @@ export default async function handler(req, res) {
 
     const existing = await findResponse.json();
 
+    // Track whether we should fire the backfill after the DB write.
+    let backfillClientId = null;
+
     if (Array.isArray(existing) && existing.length > 0) {
       // --- UPDATE existing client ---
       const clientId = existing[0].client_id;
+      const alreadyTrialed = existing[0].trial_started_at != null;
+      const currentStatus = existing[0].status;
+
+      // Build the patch: always refresh the token. Additionally, START a trial
+      // ONLY if this store has never trialed before AND isn't already a paying
+      // client. This is the reinstall guard — an uninstall/reinstall cannot
+      // reset the trial clock or re-trigger the backfill.
+      let patchPayload = { ...tokenPayload };
+
+      if (!alreadyTrialed && currentStatus !== 'active') {
+        patchPayload = { ...patchPayload, ...buildTrialStartFields(now) };
+        backfillClientId = clientId;
+        console.log(`Starting trial for existing row ${clientId} (${shop})`);
+      } else {
+        console.log(
+          `Reinstall guard: client ${clientId} already ` +
+          `${alreadyTrialed ? 'trialed' : 'active'} — token refreshed only, no trial reset`
+        );
+      }
 
       const patchResponse = await fetch(
         `${supabaseUrl}/rest/v1/clients?client_id=eq.${clientId}`,
@@ -176,7 +251,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
             'Prefer': 'return=minimal',
           },
-          body: JSON.stringify(tokenPayload),
+          body: JSON.stringify(patchPayload),
         }
       );
 
@@ -188,7 +263,7 @@ export default async function handler(req, res) {
 
       console.log(`✅ Token updated for existing client ${clientId} (${shop})`);
     } else {
-      // --- INSERT new client (status='pending_onboarding') ---
+      // --- INSERT new client (starts trial immediately) ---
       // Generate a client_id between 100000–199999 to match Lune's range.
       const newClientId = 100000 + (Date.now() % 100000);
       const insertPayload = {
@@ -196,9 +271,8 @@ export default async function handler(req, res) {
         client_name: shop.replace('.myshopify.com', ''),
         slug: shop.replace('.myshopify.com', ''),
         shopify_domain: shop,
-        status: 'pending_onboarding',
-        is_active: false,
         ...tokenPayload,
+        ...buildTrialStartFields(now),
       };
 
       const postResponse = await fetch(`${supabaseUrl}/rest/v1/clients`, {
@@ -218,7 +292,14 @@ export default async function handler(req, res) {
         return res.status(500).send('Failed to save new client');
       }
 
-      console.log(`✅ Created new client ${newClientId} for ${shop} (status=pending_onboarding)`);
+      backfillClientId = newClientId;
+      console.log(`✅ Created new client ${newClientId} for ${shop} (status=trial)`);
+    }
+
+    // Fire the trial backfill if a trial was just started (insert or first
+    // install of a pre-created row). Non-blocking — install succeeds regardless.
+    if (backfillClientId != null) {
+      await fireTrialBackfill(backfillClientId, shop, accessToken);
     }
   } catch (err) {
     console.error('Supabase write error:', err);
