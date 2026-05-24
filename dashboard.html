@@ -211,7 +211,10 @@
       }, 20000);
       iframe.addEventListener('load', function () { clearTimeout(timeout); });
 
-      iframe.src = decodeURIComponent(embedUrl);
+      // embedUrl is ALREADY decoded by URLSearchParams.get() — do NOT
+      // decodeURIComponent again, that double-decodes and corrupts the
+      // #bordered=false fragment, breaking the iframe src.
+      iframe.src = embedUrl;
     })();
   </script>
 </body>
