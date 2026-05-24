@@ -4,6 +4,7 @@
     { "src": "api/**/*.js", "use": "@vercel/node" },
     { "src": "index.html", "use": "@vercel/static" },
     { "src": "app.html", "use": "@vercel/static" },
+    { "src": "dashboard.html", "use": "@vercel/static" },
     { "src": "public/**", "use": "@vercel/static" }
   ],
   "routes": [
@@ -17,6 +18,7 @@
     { "src": "/api/shopify/token-exchange-v2", "dest": "/api/shopify/token-exchange-v2.js" },
     { "src": "/api/shopify/dashboard-link", "dest": "/api/shopify/dashboard-link.js" },
     { "src": "/app", "dest": "/app.html" },
+    { "src": "/dashboard", "dest": "/dashboard.html" },
     { "src": "/privacy", "dest": "/public/privacy.html" },
     { "src": "/install-success", "dest": "/public/install-success.html" },
     { "src": "/(.*)", "dest": "/index.html" }
