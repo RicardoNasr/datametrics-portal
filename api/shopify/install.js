@@ -34,8 +34,7 @@ export default function handler(req, res) {
     `client_id=${clientId}` +
     `&scope=${scopes}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&state=${nonce}` +
-    `&grant_options[]=per-user`;  // Required for embedded app session tokens
+    `&state=${nonce}` ;
 
   // Redirect merchant to Shopify's authorization screen
   res.redirect(authUrl);
