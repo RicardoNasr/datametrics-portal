@@ -26,7 +26,7 @@ function parseCookies(cookieHeader) {
 
 // Trial configuration
 const TRIAL_DAYS = 10;
-const TRIAL_DASHBOARD_ID = 5; // one-page "KPI Dashboard — Trial Mode"
+const TRIAL_DASHBOARD_ID = 7; // [Trial] KPI_Dashboard — Executive Overview only, Shopify-only
 
 // Fields written when a store STARTS its trial (first install only).
 function buildTrialStartFields(now) {
