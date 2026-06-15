@@ -37,6 +37,7 @@ function buildTrialStartFields(now) {
     dashboard_id: TRIAL_DASHBOARD_ID,
     trial_started_at: now.toISOString(),
     subscription_end_date: end.toISOString().slice(0, 10), // DATE column (YYYY-MM-DD)
+    onboarding_since: onboardingStart.toISOString().slice(0, 10),  // NEW — matches the 10-day backfill window
     // trial_data_ready_at intentionally left NULL — n8n sets it when the
     // 10-day backfill finishes. Portal shows "preparing" until then.
   };
