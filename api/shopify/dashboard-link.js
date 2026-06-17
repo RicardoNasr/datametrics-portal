@@ -148,16 +148,21 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server misconfiguration' });
   }
 
-  if (client.status === 'active') {
+  // Route to merchant's own dashboard if they're on a real plan:
+  //   - 'active'  → their full live dashboard (dashboard_id=2 set during paid onboarding)
+  //   - 'trial'   → their trial dashboard (dashboard_id=7 set by trial-start flow)
+  // login.js reads dashboard_id from the row, so the correct dashboard is rendered.
+  if (client.status === 'active' || client.status === 'trial') {
     const magicToken = signMagicToken(client.client_id, 300, magicSecret); // 5 min
     const dashboardUrl =
       `https://datametrics-portal.vercel.app/?magic=${encodeURIComponent(magicToken)}`;
     return res.status(200).json({ kind: 'dashboard', url: dashboardUrl });
   }
 
-  // Not active (pending_onboarding, expired, etc) → show the demo dashboard
-  // using a magic token for Lune (client_id 100001), so the reviewer / prospect
-  // sees real data without any login. 10-minute expiry is plenty for a review.
+  // Everything else (pending_onboarding, expired, trial_expired, pending_deletion, etc.)
+  // → fall back to the public demo dashboard using Lune's client_id (100001).
+  // This is the "window-shopping" view for stores whose own data isn't ready or
+  // whose subscription has lapsed. 10-minute expiry is plenty for a quick look.
   const demoMagicToken = signMagicToken(100001, 600, magicSecret);
   const demoUrl =
     `https://datametrics-portal.vercel.app/?magic=${encodeURIComponent(demoMagicToken)}`;
