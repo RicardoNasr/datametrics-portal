@@ -105,12 +105,6 @@
     .btn-primary { background: #1a1a2e; color: white; }
     .btn-primary:hover { background: #16213e; }
     .btn-primary:disabled { background: #6d7175; cursor: wait; }
-    .btn-secondary {
-      background: white;
-      color: #202223;
-      border: 1px solid #c9cccf;
-    }
-    .btn-secondary:hover { background: #f6f6f7; }
 
     .btn-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 
@@ -162,7 +156,6 @@
       <p>The DataMetrics dashboard combines this store's data with your Meta Ads spend to show revenue, profit, ROAS, attribution, and customer cohorts — all in one view.</p>
       <div class="btn-row">
         <button id="open-dashboard-btn" class="btn btn-primary">Open Dashboard</button>
-        <a id="demo-link" href="#" class="btn btn-secondary">View Sample Dashboard</a>
       </div>
       <p id="dashboard-error" style="margin-top:10px; color:#bf2c2c; display:none;"></p>
     </div>
@@ -199,11 +192,6 @@
     // unless you've explicitly restricted it.
     const PORTAL_ORIGIN = 'https://datametrics-portal.vercel.app';
 
-    // Long-lived demo magic token (1 year). Embedded here so any visitor can
-    // see the demo dashboard without any backend roundtrip. This token is
-    // server-side validated against MAGIC_LINK_SECRET — clients can't forge it.
-    const DEMO_MAGIC_TOKEN =
-      'eyJjbGllbnRfaWQiOjEwMDAwMSwiZXhwIjoxODEwNjY5NDAxLCJkZW1vIjp0cnVlLCJub25jZSI6IjBjNzEwMDhhMjQwNjQ1OWQifQ.Xx0o5wEjj1OtPFgeF8yZR8RMf6IxD38u0kXOOrVs3xU';
 
     // ====================================================================
     // EMBEDDED APP LOGIC
@@ -218,17 +206,6 @@
       if (shopEl) {
         shopEl.textContent = shop ? shop.replace('.myshopify.com', '') : 'your store';
       }
-
-      // Wire up demo link.
-      // IMPORTANT: this page runs inside Shopify Admin's iframe. We must NOT use
-      // target="_blank" / window.open — the admin iframe sandbox blocks popups,
-      // so nothing happens (the reviewer sees a "blank page"). Instead we navigate
-      // the TOP-LEVEL window (target="_top"), which breaks out of the iframe and
-      // loads the portal as a normal full-page tab.
-      document.getElementById('demo-link').href =
-        PORTAL_ORIGIN + '/?magic=' + encodeURIComponent(DEMO_MAGIC_TOKEN);
-      document.getElementById('demo-link').target = '_top';
-      document.getElementById('demo-link').rel = 'noopener';
 
       // ------------------------------------------------------------------
       // Helpers
