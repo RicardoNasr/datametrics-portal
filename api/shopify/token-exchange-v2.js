@@ -280,7 +280,7 @@ export default async function handler(req, res) {
     const findRes = await fetch(
       `${supabaseUrl}/rest/v1/clients` +
         `?shopify_domain=eq.${encodeURIComponent(shop)}` +
-        `&select=client_id,status,trial_started_at,trial_data_ready_at`,
+        `&select=client_id,status,trial_started_at,trial_data_ready_at,subscription_end_date,uninstalled_at`,
       {
         headers: {
           'apikey': supabaseKey,
@@ -306,18 +306,51 @@ export default async function handler(req, res) {
       // Decide what to patch. Always refresh the token. Additionally:
       //   - If the store has never trialed AND isn't already active, START the trial.
       //   - Otherwise, preserve existing trial / active state.
+      const everUninstalled = existing[0].uninstalled_at != null;
+      const subEndDate      = existing[0].subscription_end_date; // 'YYYY-MM-DD' or null
+
+      // A trial is "used up" if EITHER the 10-day window passed OR the shop ever
+      // uninstalled. subscription_end_date is a DATE, so compare date strings.
+      const today        = now.toISOString().slice(0, 10);
+      const windowPassed = subEndDate != null && subEndDate < today;
+      const trialUsedUp  = alreadyTrialed && (windowPassed || everUninstalled);
+
+      // Always refresh the token. Then pick exactly ONE lifecycle branch.
       let patchPayload = { ...tokenPayload };
       let newStatus = currentStatus;
 
-      if (!alreadyTrialed && currentStatus !== 'active') {
+      if (currentStatus === 'active') {
+        // Paying customer — never touch trial fields, just refresh token.
+        console.log(`Active customer ${clientId} (${shop}) — token refreshed only`);
+
+      } else if (trialUsedUp) {
+        // Trial already consumed (window passed or previously uninstalled).
+        // Lock to trial_expired. Never grant a new trial, never backfill.
+        newStatus = 'trial_expired';
+        patchPayload = {
+          ...patchPayload,
+          status: 'trial_expired',
+          is_active: false,
+          uninstalled_at: null, // reinstalled now; status carries the truth
+        };
+        console.log(
+          `Trial already used for ${clientId} (${shop}) ` +
+          `(windowPassed=${windowPassed}, everUninstalled=${everUninstalled}) ` +
+          `— locked to trial_expired`
+        );
+
+      } else if (!alreadyTrialed) {
+        // Genuinely first trial for this existing row.
         patchPayload = { ...patchPayload, ...buildTrialStartFields(now) };
         newStatus = 'trial';
         console.log(`Starting trial for existing row ${clientId} (${shop})`);
+
       } else {
-        console.log(
-          `Reinstall guard: client ${clientId} already ` +
-          `${alreadyTrialed ? 'trialed' : 'active'} — token refreshed only, no trial reset`
-        );
+        // Trial in progress (reinstalled mid-trial, window not passed, never
+        // uninstalled). Keep it running; clear any stale uninstall marker.
+        newStatus = 'trial';
+        patchPayload = { ...patchPayload, uninstalled_at: null };
+        console.log(`Trial in progress for ${clientId} (${shop}) — trial preserved`);
       }
 
       const patchRes = await fetch(
@@ -343,9 +376,10 @@ export default async function handler(req, res) {
       // Fire if (a) we just started the trial, OR
       //         (b) the client is in trial but data isn't ready yet (retry path).
       // Skip for: active customers, or trials that already have data ready.
-      const justStartedTrial = !alreadyTrialed && currentStatus !== 'active';
+      // Only backfill a LIVE trial whose data isn't ready yet. Never for
+      // active customers, never for trial_expired.
       const trialNeedsBackfill = newStatus === 'trial' && !trialDataReady;
-      if (justStartedTrial || trialNeedsBackfill) {
+      if (trialNeedsBackfill) {
         backfillClientId = clientId;
       }
       returnStatus = newStatus;

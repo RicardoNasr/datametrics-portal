@@ -159,10 +159,20 @@ export default async function handler(req, res) {
     return res.status(200).json({ kind: 'dashboard', url: dashboardUrl });
   }
 
-  // Everything else (pending_onboarding, expired, trial_expired, pending_deletion, etc.)
+  // Trial consumed (window passed or uninstalled+reinstalled). No dashboard,
+  // no demo — a clear "subscribe to continue" signal the embedded app renders
+  // as an upgrade prompt with contact info.
+  if (client.status === 'trial_expired') {
+    return res.status(200).json({
+      kind: 'trial_expired',
+      message: 'Your free trial has ended. Subscribe to keep your analytics dashboard.',
+      contact: 'hello@datametrics.app',
+    });
+  }
+
+  // Everything else (pending_onboarding, pending_deletion, etc.)
   // → fall back to the public demo dashboard using Lune's client_id (100001).
-  // This is the "window-shopping" view for stores whose own data isn't ready or
-  // whose subscription has lapsed. 10-minute expiry is plenty for a quick look.
+  // Window-shopping view for stores whose own data isn't ready yet.
   const demoMagicToken = signMagicToken(100001, 600, magicSecret);
   const demoUrl =
     `https://datametrics-portal.vercel.app/?magic=${encodeURIComponent(demoMagicToken)}`;
