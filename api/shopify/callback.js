@@ -31,13 +31,16 @@ const TRIAL_DASHBOARD_ID = 7; // [Trial] KPI_Dashboard — Executive Overview on
 // Fields written when a store STARTS its trial (first install only).
 function buildTrialStartFields(now) {
   const end = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+  // Start of the 10-day backfill window — used to seed onboarding_since so
+  // vw_client_date_bounds (and the MVs built on it) include the trial's date range.
+  const onboardingStart = new Date(now.getTime() - TRIAL_DAYS * 24 * 60 * 60 * 1000);
   return {
     status: 'trial',
     is_active: true,
     dashboard_id: TRIAL_DASHBOARD_ID,
     trial_started_at: now.toISOString(),
     subscription_end_date: end.toISOString().slice(0, 10), // DATE column (YYYY-MM-DD)
-    onboarding_since: onboardingStart.toISOString().slice(0, 10),  // NEW — matches the 10-day backfill window
+    onboarding_since: onboardingStart.toISOString().slice(0, 10),  // matches the 10-day backfill window
     // trial_data_ready_at intentionally left NULL — n8n sets it when the
     // 10-day backfill finishes. Portal shows "preparing" until then.
   };
