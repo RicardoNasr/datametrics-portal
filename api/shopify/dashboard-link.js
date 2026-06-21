@@ -166,7 +166,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       kind: 'trial_expired',
       message: 'Your free trial has ended. Subscribe to keep your analytics dashboard.',
-      contact: 'hello@datametrics.app',
+      contact: 'ricardo.nasr15@gmail.com',
     });
   }
 
