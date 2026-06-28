@@ -128,7 +128,7 @@ function resolveAccessState(client, isDemo) {
 
   // Active paying client → full dashboard.
   if (client.status === 'active') {
-    return { state: 'ready', url: buildMetabaseUrl(client), isDemo: false };
+    return { state: 'ready', url: buildMetabaseUrl(client), isDemo: false, mode: 'active' };
   }
 
   // Trial client → needs data to be ready first.
@@ -136,7 +136,7 @@ function resolveAccessState(client, isDemo) {
     if (!client.trial_data_ready_at) {
       return { state: 'preparing' };
     }
-    return { state: 'ready', url: buildMetabaseUrl(client), isDemo: !!isDemo };
+    return { state: 'ready', url: buildMetabaseUrl(client), isDemo: !!isDemo, mode: 'trial' };
   }
 
   // pending_onboarding / anything else → not ready yet.
