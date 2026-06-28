@@ -172,6 +172,7 @@
         if (data.state === 'ready') {
           qs.set('embed', data.url);
           if (data.isDemo) qs.set('demo', '1');
+          if (data.mode) qs.set('mode', data.mode);
         }
         if (data.state === 'expired') {
           qs.set('kind', data.expiredKind || 'trial');
@@ -248,6 +249,7 @@
         if (data.state === 'ready') {
           qs.set('embed', data.url);
           if (data.isDemo) qs.set('demo', '1');
+          if (data.mode) qs.set('mode', data.mode);
         }
         if (data.state === 'expired') {
           qs.set('kind', data.expiredKind || 'paid');
