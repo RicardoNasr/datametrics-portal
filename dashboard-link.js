@@ -76,6 +76,57 @@ function signMagicToken(clientId, expiresInSeconds, secret) {
   return `${payloadB64}.${base64UrlEncode(sig)}`;
 }
 
+// ---------- trial refresh (fire-and-forget) ----------
+// On each "Open Dashboard" for a TRIAL client, re-fire the 10-day backfill so
+// the sliding window stays current (picks up orders placed since install).
+// Fire-and-forget: we do NOT await completion — the merchant opens instantly and
+// sees refreshed data on their next open. Trial stays limited to 10 days, so the
+// value gap vs. paid (full history + automatic nightly) is preserved.
+async function fireTrialRefresh(clientId, shop, accessToken) {
+  const webhookUrl = process.env.N8N_INSTALL_WEBHOOK_URL;
+  if (!webhookUrl || !accessToken) return; // nothing to fire with
+  try {
+    // Don't await the body — just kick it off. Vercel keeps the function alive
+    // for the fetch; we return the dashboard URL immediately regardless.
+    fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-datametrics-secret': process.env.N8N_INSTALL_WEBHOOK_SECRET || '',
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        shop_domain: shop,
+        access_token: accessToken,
+        trial_days: 10,
+      }),
+    }).catch((e) => console.warn('trial refresh fire failed (non-fatal):', e.message));
+  } catch (e) {
+    console.warn('trial refresh error (non-fatal):', e.message);
+  }
+}
+
+// Bump onboarding_since forward to today-10 so the MVs' date window slides with
+// the refreshed data. Fire-and-forget PATCH.
+async function bumpOnboardingSince(clientId, supabaseUrl, supabaseKey) {
+  try {
+    const since = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    fetch(`${supabaseUrl}/rest/v1/clients?client_id=eq.${clientId}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ onboarding_since: since }),
+    }).catch((e) => console.warn('onboarding_since bump failed (non-fatal):', e.message));
+  } catch (e) {
+    console.warn('onboarding_since bump error (non-fatal):', e.message);
+  }
+}
+
 // ---------- handler ----------
 export default async function handler(req, res) {
   setCors(res);
@@ -119,7 +170,7 @@ export default async function handler(req, res) {
   const lookupRes = await fetch(
     `${supabaseUrl}/rest/v1/clients` +
       `?shopify_domain=eq.${encodeURIComponent(shop)}` +
-      `&select=client_id,status,subscription_end_date`,
+      `&select=client_id,status,subscription_end_date,shopify_access_token`,
     {
       headers: {
         'apikey': supabaseKey,
@@ -153,6 +204,13 @@ export default async function handler(req, res) {
   //   - 'trial'   → their trial dashboard (dashboard_id=7 set by trial-start flow)
   // login.js reads dashboard_id from the row, so the correct dashboard is rendered.
   if (client.status === 'active' || client.status === 'trial') {
+    // For TRIAL clients only: re-fire the 10-day backfill (sliding window) so
+    // the next open reflects orders placed since install. Fire-and-forget — no
+    // added latency. Active clients are refreshed by the nightly job instead.
+    if (client.status === 'trial') {
+      bumpOnboardingSince(client.client_id, supabaseUrl, supabaseKey);
+      fireTrialRefresh(client.client_id, shop, client.shopify_access_token);
+    }
     const magicToken = signMagicToken(client.client_id, 300, magicSecret); // 5 min
     const dashboardUrl =
       `https://datametrics-portal.vercel.app/?magic=${encodeURIComponent(magicToken)}`;
