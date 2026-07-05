@@ -76,6 +76,47 @@ function signMagicToken(clientId, expiresInSeconds, secret) {
   return `${payloadB64}.${base64UrlEncode(sig)}`;
 }
 
+// Fire the 10-day backfill webhook (used for the trial sliding-window refresh).
+// Returns nothing useful — the app polls trial_data_ready_at to detect completion.
+async function fireTrialRefresh(clientId, shop, accessToken) {
+  const webhookUrl = process.env.N8N_INSTALL_WEBHOOK_URL;
+  if (!webhookUrl || !accessToken) return false;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-datametrics-secret': process.env.N8N_INSTALL_WEBHOOK_SECRET || '',
+      },
+      body: JSON.stringify({
+        client_id: clientId, shop_domain: shop,
+        access_token: accessToken, trial_days: 10,
+      }),
+    });
+    return true;
+  } catch (e) {
+    console.warn('trial refresh fire failed (non-fatal):', e.message);
+    return false;
+  }
+}
+
+// Slide onboarding_since to today-10 so the MV window moves with the refresh.
+async function bumpOnboardingSince(clientId, supabaseUrl, supabaseKey) {
+  const since = new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10);
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/clients?client_id=eq.${clientId}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json', 'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ onboarding_since: since }),
+    });
+  } catch (e) {
+    console.warn('onboarding_since bump failed (non-fatal):', e.message);
+  }
+}
+
 // ---------- handler ----------
 export default async function handler(req, res) {
   setCors(res);
@@ -119,7 +160,7 @@ export default async function handler(req, res) {
   const lookupRes = await fetch(
     `${supabaseUrl}/rest/v1/clients` +
       `?shopify_domain=eq.${encodeURIComponent(shop)}` +
-      `&select=client_id,status,subscription_end_date`,
+      `&select=client_id,status,subscription_end_date,shopify_access_token,trial_data_ready_at`,
     {
       headers: {
         'apikey': supabaseKey,
@@ -148,25 +189,59 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server misconfiguration' });
   }
 
-  // Route to merchant's own dashboard if they're on a real plan:
-  //   - 'active'  → their full live dashboard (dashboard_id=2 set during paid onboarding)
-  //   - 'trial'   → their trial dashboard (dashboard_id=7 set by trial-start flow)
-  // login.js reads dashboard_id from the row, so the correct dashboard is rendered.
-  if (client.status === 'active' || client.status === 'trial') {
-    const magicToken = signMagicToken(client.client_id, 300, magicSecret); // 5 min
-    const dashboardUrl =
-      `https://datametrics-portal.vercel.app/?magic=${encodeURIComponent(magicToken)}`;
-    return res.status(200).json({ kind: 'dashboard', url: dashboardUrl });
+  // Query flags (sent by app.html):
+  //   action=start_refresh → begin a sliding-window refresh (trial only)
+  //   action=poll&since=<iso> → check if refresh finished (trial_data_ready_at newer than <since>)
+  const body = req.body || {};
+  const action = body.action || null;
+  const sinceParam = body.since || null;
+
+  // ---------- ACTIVE ----------
+  if (client.status === 'active') {
+    const magicToken = signMagicToken(client.client_id, 300, magicSecret);
+    return res.status(200).json({
+      kind: 'dashboard',
+      url: `https://datametrics-portal.vercel.app/?magic=${encodeURIComponent(magicToken)}`,
+    });
   }
 
-  // Trial consumed (window passed or uninstalled+reinstalled). No dashboard,
-  // no demo — a clear "subscribe to continue" signal the embedded app renders
-  // as an upgrade prompt with contact info.
+  // ---------- TRIAL ----------
+  if (client.status === 'trial') {
+    // POLL: has the background refresh finished since we started it?
+    if (action === 'poll') {
+      const ready = client.trial_data_ready_at;
+      const done = ready && (!sinceParam || new Date(ready) > new Date(sinceParam));
+      if (done) {
+        const magicToken = signMagicToken(client.client_id, 300, magicSecret);
+        return res.status(200).json({
+          kind: 'dashboard',
+          url: `https://datametrics-portal.vercel.app/?magic=${encodeURIComponent(magicToken)}`,
+        });
+      }
+      return res.status(200).json({ kind: 'refreshing' }); // still working
+    }
+
+    // START_REFRESH: slide the window, fire the backfill, tell app to poll.
+    if (action === 'start_refresh') {
+      const startedFrom = client.trial_data_ready_at || null;
+      await bumpOnboardingSince(client.client_id, supabaseUrl, supabaseKey);
+      await fireTrialRefresh(client.client_id, shop, client.shopify_access_token);
+      return res.status(200).json({ kind: 'refreshing', since: startedFrom });
+    }
+
+    // Default (no action): open immediately with current data.
+    const magicToken = signMagicToken(client.client_id, 300, magicSecret);
+    return res.status(200).json({
+      kind: 'dashboard',
+      url: `https://datametrics-portal.vercel.app/?magic=${encodeURIComponent(magicToken)}`,
+    });
+  }
+
+  // ---------- TRIAL EXPIRED ---------- (neutral, no payment/contact)
   if (client.status === 'trial_expired') {
     return res.status(200).json({
       kind: 'trial_expired',
-      message: 'Your free trial has ended. Subscribe to keep your analytics dashboard.',
-      contact: 'ricardo.nasr15@gmail.com',
+      message: 'Your free trial has ended.',
     });
   }
 
