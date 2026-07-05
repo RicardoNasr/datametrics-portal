@@ -125,16 +125,12 @@
 
   <div class="sample-banner" id="sample-banner">
     <strong>Sample dashboard.</strong>
-    You're viewing example data from a demo store. Your own store's analytics
-    activate once your DataMetrics account is set up.
-    <a href="mailto:ricardo.nasr15@gmail.com" style="color:#92400e;font-weight:600;">Contact us to activate.</a>
+    You're viewing example data from a demo store.
   </div>
 
   <div class="trial-banner" id="trial-banner">
     <strong>Trial mode.</strong>
-    You're viewing your store's last 10 days of orders — that's everything
-    included in the free trial. To unlock continuous daily updates and your full
-    analytics, <a href="mailto:ricardo.nasr15@gmail.com">contact us to go active</a>.
+    You're viewing your store's last 10 days of orders.
   </div>
 
   <div class="active-banner" id="active-banner">
@@ -172,10 +168,8 @@
         Your trial has ended
       </div>
       <div style="font-size:14px;color:#6b7280;max-width:420px;line-height:1.6;" id="expired-body">
-        Thanks for trying DataMetrics. To keep access to your analytics,
-        get in touch and we'll set up your full account.
+        Thanks for trying DataMetrics. Your free trial has ended.
       </div>
-      <a class="btn" id="expired-cta" href="mailto:ricardo.nasr15@gmail.com">Contact us</a>
     </div>
 
     <!-- Generic error fallback -->
@@ -212,10 +206,9 @@
       if (state === 'expired') {
         hideLoading();
         if (expiredKind === 'paid') {
-          document.getElementById('expired-title').textContent = 'Your plan has expired';
+          document.getElementById('expired-title').textContent = 'Your plan has ended';
           document.getElementById('expired-body').textContent =
-            'Your DataMetrics subscription has ended. Contact us to renew and ' +
-            'restore access to your dashboard.';
+            'Your DataMetrics access has ended.';
         }
         meta.textContent = 'Account';
         show('expired-state');

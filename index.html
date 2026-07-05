@@ -120,7 +120,7 @@
     </form>
 
     <div class="footer">
-      Need access? <a href="mailto:ricardo.nasr15@gmail.com">Contact us</a>
+      Access is provided through the DataMetrics app in your Shopify admin.
     </div>
   </div>
 
@@ -167,7 +167,7 @@
 
         // Route every state through the /dashboard wrapper, which renders the
         // right page (ready → embed, preparing → "being prepared", expired →
-        // "contact us"). The wrapper is always a controlled, non-blank page.
+        // "trial ended"). The wrapper is always a controlled, non-blank page.
         const qs = new URLSearchParams({ state: data.state || 'preparing' });
         if (data.state === 'ready') {
           qs.set('embed', data.url);

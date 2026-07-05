@@ -153,7 +153,7 @@
 
     <div class="card">
       <h2>Your analytics dashboard</h2>
-      <p>The DataMetrics dashboard combines this store's data with your Meta Ads spend to show revenue, profit, ROAS, attribution, and customer cohorts — all in one view.</p>
+      <p>The DataMetrics dashboard turns your store's orders into clear analytics — sales, paid orders, average order value, and your top products — all in one view.</p>
       <div class="btn-row">
         <button id="open-dashboard-btn" class="btn btn-primary">Open Dashboard</button>
       </div>
@@ -175,8 +175,8 @@
         <span class="info-value">Hourly, automatic</span>
       </div>
       <div class="info-row">
-        <span class="info-label">Support</span>
-        <span class="info-value"><a href="mailto:ricardo.nasr15@gmail.com" style="color:#2c6ecb;text-decoration:none;">ricardo.nasr15@gmail.com</a></span>
+        <span class="info-label">Data privacy</span>
+        <span class="info-value">Read-only, never shared</span>
       </div>
     </div>
 
@@ -336,11 +336,9 @@
           const data = await res.json().catch(() => ({}));
 
           // Trial consumed (10-day window passed, or uninstalled+reinstalled).
-          // Show a clear subscribe prompt instead of a dashboard.
+          // Neutral message — no payment or contact prompt.
           if (data.kind === 'trial_expired') {
-            dashErr.innerHTML =
-              (data.message || 'Your free trial has ended. Subscribe to continue.') +
-              (data.contact ? ' Contact <a href="mailto:' + data.contact + '">' + data.contact + '</a>.' : '');
+            dashErr.textContent = data.message || 'Your free trial has ended.';
             dashErr.style.display = 'block';
             dashBtn.disabled = false;
             dashBtn.textContent = originalText;

@@ -160,13 +160,11 @@ export default async function handler(req, res) {
   }
 
   // Trial consumed (window passed or uninstalled+reinstalled). No dashboard,
-  // no demo — a clear "subscribe to continue" signal the embedded app renders
-  // as an upgrade prompt with contact info.
+  // no demo. Neutral "trial ended" signal — no payment or contact prompt.
   if (client.status === 'trial_expired') {
     return res.status(200).json({
       kind: 'trial_expired',
-      message: 'Your free trial has ended. Subscribe to keep your analytics dashboard.',
-      contact: 'ricardo.nasr15@gmail.com',
+      message: 'Your free trial has ended.',
     });
   }
 
