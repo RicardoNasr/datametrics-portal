@@ -129,8 +129,8 @@
   </div>
 
   <div class="trial-banner" id="trial-banner">
-    <strong>Trial mode.</strong>
-    You're viewing your store's last 10 days of orders.
+    <strong>Your dashboard.</strong>
+    Showing your store's last 10 days of orders.
   </div>
 
   <div class="active-banner" id="active-banner">
@@ -165,10 +165,10 @@
     <!-- EXPIRED state: trial or paid plan ended -->
     <div class="error-state" id="expired-state">
       <div style="font-size:20px;font-weight:600;color:#1a1a2e;" id="expired-title">
-        Your trial has ended
+        This preview has ended
       </div>
       <div style="font-size:14px;color:#6b7280;max-width:420px;line-height:1.6;" id="expired-body">
-        Thanks for trying DataMetrics. Your free trial has ended.
+        Thanks for using DataMetrics. This preview has ended.
       </div>
     </div>
 
@@ -229,7 +229,7 @@
         meta.textContent = 'Sample data';
       } else if (mode === 'trial') {
         document.getElementById('trial-banner').classList.add('visible');
-        meta.textContent = 'Trial — last 10 days';
+        meta.textContent = 'Last 10 days';
       } else if (mode === 'active') {
         document.getElementById('active-banner').classList.add('visible');
         meta.textContent = 'Your dashboard';
