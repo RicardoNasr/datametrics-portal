@@ -361,10 +361,13 @@
             return;
           }
 
-          // Trial refresh started → poll until the workflow finishes (data ready).
+          // Refresh started → keep the merchant on the spinner and poll until the
+          // workflow finishes (data ready). We do NOT open a half-ready dashboard —
+          // that would look broken. If it takes unusually long, we show a clean
+          // "preparing your data" message instead of a possibly-empty dashboard.
           if (start.data.kind === 'refreshing') {
             const since = start.data.since || null;
-            const maxWaitMs = 25000;   // hard cap — never hang the UI
+            const maxWaitMs = 45000;   // wait up to 45s for the workflow to finish
             const intervalMs = 2000;
             const deadline = Date.now() + maxWaitMs;
 
@@ -375,17 +378,14 @@
                 topLevelNavigate(poll.data.url);
                 return;
               }
-              // else kind==='refreshing' → keep waiting
+              // else kind==='refreshing' → keep waiting (spinner stays up)
             }
 
-            // Timed out waiting for the refresh. Open with whatever data exists
-            // now (default action returns a URL) rather than leaving them stuck.
-            const fallback = await callDashboardLink(sessionToken, {});
-            if (fallback.data.kind === 'dashboard' && fallback.data.url) {
-              topLevelNavigate(fallback.data.url);
-              return;
-            }
-            throw new Error('Could not open dashboard');
+            // Genuinely slow (n8n backlog / cold start). Do NOT open a maybe-empty
+            // dashboard. Send them to the portal's "preparing" page, which is a
+            // clean, controlled message — never a broken-looking view.
+            topLevelNavigate(PORTAL_ORIGIN + '/dashboard?state=preparing');
+            return;
           }
 
           // Any other shape — try to open if a URL came back, else error.
