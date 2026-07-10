@@ -153,7 +153,7 @@
 
     <div class="card">
       <h2>Your analytics dashboard</h2>
-      <p>The DataMetrics dashboard combines this store's data with your Meta Ads spend to show revenue, profit, ROAS, attribution, and customer cohorts — all in one view.</p>
+      <p>The DataMetrics dashboard turns your store's orders into clear analytics — sales, paid orders, average order value, and your top products — all in one view.</p>
       <div class="btn-row">
         <button id="open-dashboard-btn" class="btn btn-primary">Open Dashboard</button>
       </div>
@@ -175,8 +175,8 @@
         <span class="info-value">Hourly, automatic</span>
       </div>
       <div class="info-row">
-        <span class="info-label">Support</span>
-        <span class="info-value"><a href="mailto:ricardo.nasr15@gmail.com" style="color:#2c6ecb;text-decoration:none;">ricardo.nasr15@gmail.com</a></span>
+        <span class="info-label">Data privacy</span>
+        <span class="info-value">Read-only, never shared</span>
       </div>
     </div>
 
@@ -318,46 +318,82 @@
       const dashBtn = document.getElementById('open-dashboard-btn');
       const dashErr = document.getElementById('dashboard-error');
 
+      // Helper: one call to dashboard-link with an optional action/since body.
+      async function callDashboardLink(sessionToken, payload) {
+        const res = await fetch(PORTAL_ORIGIN + '/api/shopify/dashboard-link', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + sessionToken,
+          },
+          body: JSON.stringify(payload || {}),
+        });
+        const data = await res.json().catch(() => ({}));
+        return { res, data };
+      }
+
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
       dashBtn.addEventListener('click', async function () {
         dashErr.style.display = 'none';
         dashBtn.disabled = true;
         const originalText = dashBtn.textContent;
-        dashBtn.textContent = 'Opening…';
+        dashBtn.textContent = 'Refreshing your data…';
 
         try {
           const sessionToken = await getSessionToken();
-          const res = await fetch(PORTAL_ORIGIN + '/api/shopify/dashboard-link', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ' + sessionToken,
-            },
-          });
-          const data = await res.json().catch(() => ({}));
 
-          // Trial consumed (10-day window passed, or uninstalled+reinstalled).
-          // Show a clear subscribe prompt instead of a dashboard.
-          if (data.kind === 'trial_expired') {
-            dashErr.innerHTML =
-              (data.message || 'Your free trial has ended. Subscribe to continue.') +
-              (data.contact ? ' Contact <a href="mailto:' + data.contact + '">' + data.contact + '</a>.' : '');
+          // Step 1: ask the backend to start a sliding-window refresh.
+          const start = await callDashboardLink(sessionToken, { action: 'start_refresh' });
+
+          // Trial consumed → neutral message, no dashboard.
+          if (start.data.kind === 'trial_expired') {
+            dashErr.textContent = start.data.message || 'This preview has ended.';
             dashErr.style.display = 'block';
             dashBtn.disabled = false;
             dashBtn.textContent = originalText;
             return;
           }
 
-          if (!res.ok || !data.url) {
-            throw new Error(data.message || data.error || 'Could not open dashboard');
+          // Active clients / demo / non-trial → we already have a URL, just open.
+          if (start.data.kind === 'dashboard' && start.data.url) {
+            topLevelNavigate(start.data.url);
+            return;
           }
 
-          // Break out of the Shopify Admin iframe to the top-level window.
-          // window.open(_blank) is blocked inside the admin iframe sandbox, which
-          // is what caused the "blank page" the reviewer saw.
-          // The most reliable cross-browser way to break out is a real anchor
-          // click with target="_top" (programmatic window.open can be swallowed
-          // by the sandbox; an anchor _top navigation is honored consistently).
-          topLevelNavigate(data.url);
+          // Trial refresh started → poll until the workflow finishes (data ready).
+          if (start.data.kind === 'refreshing') {
+            const since = start.data.since || null;
+            const maxWaitMs = 25000;   // hard cap — never hang the UI
+            const intervalMs = 2000;
+            const deadline = Date.now() + maxWaitMs;
+
+            while (Date.now() < deadline) {
+              await sleep(intervalMs);
+              const poll = await callDashboardLink(sessionToken, { action: 'poll', since });
+              if (poll.data.kind === 'dashboard' && poll.data.url) {
+                topLevelNavigate(poll.data.url);
+                return;
+              }
+              // else kind==='refreshing' → keep waiting
+            }
+
+            // Timed out waiting for the refresh. Open with whatever data exists
+            // now (default action returns a URL) rather than leaving them stuck.
+            const fallback = await callDashboardLink(sessionToken, {});
+            if (fallback.data.kind === 'dashboard' && fallback.data.url) {
+              topLevelNavigate(fallback.data.url);
+              return;
+            }
+            throw new Error('Could not open dashboard');
+          }
+
+          // Any other shape — try to open if a URL came back, else error.
+          if (start.data.url) {
+            topLevelNavigate(start.data.url);
+            return;
+          }
+          throw new Error(start.data.message || start.data.error || 'Could not open dashboard');
         } catch (err) {
           console.error('Open dashboard error:', err);
           dashErr.textContent = err.message || 'Could not open dashboard. Please try again.';
